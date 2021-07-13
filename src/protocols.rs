@@ -32,7 +32,7 @@ impl Default for Serial {
 
 impl Serial {
     fn format_address(address: <Self as Protocol>::Address) -> String {
-        format!("port{}", address)
+        format!("COM{}", address)
     }
 }
 

@@ -65,13 +65,14 @@ impl PiezoController {
         Self { ..Self::default() }
     }
 
-    pub fn query<C: Deref<Target = [u8]>>(
-        &mut self,
-        command: C,
-        buf: &mut Vec<u8>,
-    ) -> std::io::Result<(usize, usize)> {
+    pub fn query<C: Deref<Target = [u8]>>(&mut self, command: C) -> std::io::Result<String> {
         let bytes_input = self.write(&command)?;
-        let bytes_ouput = self.read(buf)?;
-        Ok((bytes_input, bytes_ouput))
+        let mut buf = vec![0u8; 128];
+        let bytes_ouput = self.read(&mut buf)?;
+        Ok(buf
+            .into_iter()
+            .take(bytes_ouput)
+            .map(|c| c as char)
+            .collect())
     }
 }

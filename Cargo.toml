@@ -1,5 +1,5 @@
 [package]
-name = "instruemnt_controller"
+name = "rustrument"
 version = "0.1.0"
 authors = ["YwLiu <itoar@outlook.com>"]
 edition = "2018"

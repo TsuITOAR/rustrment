@@ -5,7 +5,7 @@ use std::{
 
 use crate::protocols::Protocol;
 
-pub type Bound<P, ID> =
+type Bound<P, ID> =
     Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
 
 pub mod mdt693_b;

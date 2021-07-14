@@ -1,13 +1,14 @@
 use std::error::Error;
 
-use rustrument::instruments::{piezo_controller, RemoteControl};
-
+use rustrument::instruments::mdt693_b;
+use rustrument::instruments::mdt693_b::Query;
+use rustrument::instruments::mdt693_b::Set;
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting PiezoController connecting test\n");
-    
-    let mut controller = piezo_controller::PiezoController::new();
-    controller.connect(5)?;
-    println!("{:?}", controller.query("xvoltage?\n".as_bytes())?);
 
+    let mut controller = mdt693_b::new(5)?;
+    //println!("{}", controller.query(Query::GetCommands)?);
+    controller.set(Set::SetXVoltage(0))?;
+    println!("{}", controller.query(Query::ReadXVoltage)?);
     Ok(())
 }

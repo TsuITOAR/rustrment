@@ -5,37 +5,19 @@ use std::{
 
 use crate::protocols::Protocol;
 
-type Bound<P, ID> =
-    Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
+type Bound<P, ID> = Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
 
 pub mod mdt693_b;
-pub trait Command {
-    type Target;
-    type CommandType;
+
+pub trait Model {
+    const DESCRIPTION: &'static str;
+    type SetCommand: InstructionSet<false>;
+    type QueryCommand: InstructionSet<true>;
+}
+pub trait InstructionSet<const REPLY: bool> {
     const TERMINATOR: u8;
     const END_BYTE: u8;
     fn to_bytes(command: Self) -> Box<[u8]>;
-}
-
-pub struct SetCommand;
-pub struct QueryCommand;
-
-pub struct Channel<P: Protocol> {
-    protocol: P,
-    address: <P as Protocol>::Address,
-}
-
-impl<P: Protocol> Channel<P> {
-    pub fn new(p: P, address: <P as Protocol>::Address) -> Self {
-        Self {
-            protocol: p,
-            address,
-        }
-    }
-    pub fn connect(self) -> Result<Messenger<<P as Protocol>::IO>, <P as Protocol>::Error> {
-        let io = self.protocol.connect(self.address)?;
-        Ok(Messenger { io })
-    }
 }
 
 pub struct Messenger<IO: Write + Read> {
@@ -58,22 +40,25 @@ impl<IO: Write + Read> Read for Messenger<IO> {
 }
 
 impl<IO: Write + Read> Messenger<IO> {
-    pub fn bind<T>(self, _target: T) -> Instrument<Self, T> {
+    pub fn new(io: IO) -> Self {
+        Self { io }
+    }
+    pub fn bind<M: Model>(self, _model: M) -> Instrument<Self, M> {
         Instrument {
             messenger: BufReader::new(self),
-            target_marker: PhantomData,
+            model: PhantomData,
             buf: Vec::new(),
         }
     }
 }
 
-pub struct Instrument<IO: Write + Read, T> {
+pub struct Instrument<IO: Write + Read, M: Model> {
     messenger: BufReader<IO>,
-    target_marker: PhantomData<T>,
+    model: PhantomData<M>,
     buf: Vec<u8>,
 }
 
-impl<IO: Write + Read, T> Write for Instrument<IO, T> {
+impl<IO: Write + Read, M: Model> Write for Instrument<IO, M> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.messenger.get_mut().write(buf)
     }
@@ -82,13 +67,13 @@ impl<IO: Write + Read, T> Write for Instrument<IO, T> {
     }
 }
 
-impl<IO: Write + Read, T> Read for Instrument<IO, T> {
+impl<IO: Write + Read, M: Model> Read for Instrument<IO, M> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.messenger.read(buf)
     }
 }
 
-impl<IO: Write + Read, T> BufRead for Instrument<IO, T> {
+impl<IO: Write + Read, M: Model> BufRead for Instrument<IO, M> {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         self.messenger.fill_buf()
     }
@@ -97,23 +82,18 @@ impl<IO: Write + Read, T> BufRead for Instrument<IO, T> {
     }
 }
 
-impl<IO: Write + Read, T> Instrument<IO, T> {
-    pub fn set<S>(&mut self, command: S) -> Result<(), Error>
-    where
-        S: Command<CommandType = SetCommand, Target = T>,
-    {
-        let message = Command::to_bytes(command);
+impl<IO: Write + Read, M: Model> Instrument<IO, M> {
+    pub fn set(&mut self, command: M::SetCommand) -> Result<(), Error> {
+        let message = InstructionSet::to_bytes(command);
         self.write(&message)?;
         Ok(())
     }
-    pub fn query<Q>(&mut self, command: Q) -> Result<String, Error>
-    where
-        Q: Command<CommandType = QueryCommand, Target = T>,
-    {
-        let message = Command::to_bytes(command);
+    pub fn query(&mut self, command: M::QueryCommand) -> Result<String, Error> {
+        let message = InstructionSet::to_bytes(command);
         self.write(&message)?;
         self.buf.clear();
-        self.messenger.read_until(Q::END_BYTE, &mut self.buf)?;
+        self.messenger
+            .read_until(M::QueryCommand::END_BYTE, &mut self.buf)?;
         Ok(String::from_utf8_lossy(&mut self.buf).into())
     }
 }

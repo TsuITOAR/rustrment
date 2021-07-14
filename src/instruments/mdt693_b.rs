@@ -1,7 +1,14 @@
-use crate::protocols::Serial;
+use crate::protocols::{Protocol, Serial};
+
+use super::{InstructionSet, Messenger, Model};
 
 pub struct MDT693B;
 
+impl Model for MDT693B {
+    const DESCRIPTION: &'static str = "Piezo controller";
+    type SetCommand = Set;
+    type QueryCommand = Query;
+}
 pub(crate) const ID: MDT693B = MDT693B;
 type DefaultProtocol = Serial;
 
@@ -63,9 +70,7 @@ pub enum Set {
     SetDisableRotaryPushToAdjust(bool),
 }
 
-impl super::Command for Query {
-    type Target = MDT693B;
-    type CommandType = super::QueryCommand;
+impl InstructionSet<true> for Query {
     const TERMINATOR: u8 = b'\n';
     const END_BYTE: u8 = b']';
     fn to_bytes(command: Self) -> Box<[u8]> {
@@ -99,9 +104,7 @@ impl super::Command for Query {
     }
 }
 
-impl super::Command for Set {
-    type Target = MDT693B;
-    type CommandType = super::SetCommand;
+impl InstructionSet<false> for Set {
     const TERMINATOR: u8 = b'\n';
     const END_BYTE: u8 = b']';
     fn to_bytes(command: Self) -> Box<[u8]> {
@@ -140,6 +143,6 @@ impl super::Command for Set {
 pub fn new(
     address: <DefaultProtocol as super::Protocol>::Address,
 ) -> super::Bound<DefaultProtocol, MDT693B> {
-    let channel = super::Channel::new(DEFAULT_PROTOCOL, address);
-    Ok(channel.connect()?.bind(ID))
+    let messenger = Messenger::new(DEFAULT_PROTOCOL.connect(address)?);
+    Ok(messenger.bind(ID))
 }

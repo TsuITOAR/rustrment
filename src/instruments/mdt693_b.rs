@@ -5,7 +5,7 @@ pub struct MDT693B;
 pub(crate) const ID: MDT693B = MDT693B;
 type DefaultProtocol = Serial;
 
-pub const DEFAULTPROTOCOL: DefaultProtocol = Serial {
+pub const DEFAULT_PROTOCOL: DefaultProtocol = Serial {
     baud_rate: serial::Baud115200,
     data_bits: serial::Bits8,
     parity: serial::ParityNone,
@@ -140,6 +140,6 @@ impl super::Command for Set {
 pub fn new(
     address: <DefaultProtocol as super::Protocol>::Address,
 ) -> super::Bound<DefaultProtocol, MDT693B> {
-    let channel = super::Channel::new(DEFAULTPROTOCOL, address);
+    let channel = super::Channel::new(DEFAULT_PROTOCOL, address);
     Ok(channel.connect()?.bind(ID))
 }

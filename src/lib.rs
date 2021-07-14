@@ -72,7 +72,7 @@ impl PiezoController {
             y_voltage,
             z_voltage,
             messenger,
-            flag: (false, false, false),
+            flag: (true, true, true),
             time_set: std::time::Instant::now(),
         })
     }

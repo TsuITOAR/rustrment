@@ -1,5 +1,4 @@
 use crate::protocols::{Protocol, Serial};
-
 use super::{InstructionSet, Messenger, Model};
 
 pub struct MDT693B;

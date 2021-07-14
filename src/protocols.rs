@@ -37,7 +37,7 @@ impl Serial {
 }
 
 impl Protocol for Serial {
-    type Address = usize;
+    type Address = u8;
     type Error = serial::Error;
     type IO = SystemPort;
     fn connect(self, address: Self::Address) -> Result<Self::IO, Self::Error> {

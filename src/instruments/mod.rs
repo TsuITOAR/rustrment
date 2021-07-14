@@ -1,13 +1,12 @@
+pub mod mdt693_b;
+
 use std::{
     io::{BufRead, BufReader, Error, Read, Write},
     marker::PhantomData,
 };
-
 use crate::protocols::Protocol;
 
 type Bound<P, ID> = Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
-
-pub mod mdt693_b;
 
 pub trait Model {
     const DESCRIPTION: &'static str;

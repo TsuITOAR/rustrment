@@ -1,5 +1,5 @@
-use crate::protocols::{Protocol, Serial};
 use super::{InstructionSet, Messenger, Model};
+use crate::protocols::{Protocol, Serial};
 
 pub struct MDT693B;
 
@@ -7,6 +7,9 @@ impl Model for MDT693B {
     const DESCRIPTION: &'static str = "Piezo controller";
     type SetCommand = Set;
     type QueryCommand = Query;
+    const PREFIX: &'static [u8] = &[b'>', b'['];
+    const SUFFIX: &'static [u8] = &[b']'];
+    const END_BYTE: u8 = b']';
 }
 pub(crate) const ID: MDT693B = MDT693B;
 type DefaultProtocol = Serial;
@@ -71,7 +74,6 @@ pub enum Set {
 
 impl InstructionSet<true> for Query {
     const TERMINATOR: u8 = b'\n';
-    const END_BYTE: u8 = b']';
     fn to_bytes(command: Self) -> Box<[u8]> {
         match command {
             Query::GetCommands => "?",
@@ -105,7 +107,6 @@ impl InstructionSet<true> for Query {
 
 impl InstructionSet<false> for Set {
     const TERMINATOR: u8 = b'\n';
-    const END_BYTE: u8 = b']';
     fn to_bytes(command: Self) -> Box<[u8]> {
         match command {
             Set::SetEchoCommand(bo) => format!("echo={}", bo),

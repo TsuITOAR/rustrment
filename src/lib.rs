@@ -1,6 +1,6 @@
-use std::{error::Error, fmt::Display, str::FromStr};
+use std::{error::Error, fmt::Display};
 
-use instruments::{mdt693_b::MDT693B, Instrument, Messenger};
+use instruments::{mdt693_b::MDT693B, Instrument, Messenger, Model};
 use protocols::{Protocol, Serial};
 use serial::SerialPort;
 
@@ -28,16 +28,8 @@ pub struct PiezoController {
 }
 
 impl PiezoController {
-    fn extract_num(message: String) -> Result<f32, <f32 as FromStr>::Err> {
-        message
-            .lines()
-            .last()
-            .unwrap_or_default()
-            .chars()
-            .skip_while(|x| !x.is_numeric())
-            .take_while(|x| x.is_numeric())
-            .collect::<String>()
-            .parse()
+    fn extract_num(message: &[u8]) -> Result<f32, Box<dyn Error>> {
+        Ok(std::str::from_utf8(<MDT693B as Model>::strip(message))?.parse()?)
     }
 
     pub fn update(&mut self) -> Result<(), Box<dyn Error>> {

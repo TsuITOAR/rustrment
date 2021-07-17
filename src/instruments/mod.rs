@@ -1,10 +1,11 @@
 pub mod mdt693_b;
 
+use crate::protocols::Protocol;
 use std::{
     io::{BufRead, BufReader, Error, Read, Write},
     marker::PhantomData,
+    u8,
 };
-use crate::protocols::Protocol;
 
 type Bound<P, ID> = Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
 
@@ -12,10 +13,29 @@ pub trait Model {
     const DESCRIPTION: &'static str;
     type SetCommand: InstructionSet<false>;
     type QueryCommand: InstructionSet<true>;
+    const PREFIX: &'static [u8];
+    const SUFFIX: &'static [u8];
+    const END_BYTE: u8;
+    //TO-DO: change this to Result instead of panic
+    fn strip(raw: &[u8]) -> &[u8] {
+        raw.strip_prefix(<Self as Model>::PREFIX)
+            .expect(&format!(
+                "unexpected message prefix returned by {}, expected prefix {:?}, found {:?}",
+                <Self as Model>::DESCRIPTION,
+                <Self as Model>::PREFIX,
+                raw
+            ))
+            .strip_suffix(<Self as Model>::SUFFIX)
+            .expect(&format!(
+                "unexpected message suffix returned by {}, expected suffix {:?}, found {:?}",
+                <Self as Model>::DESCRIPTION,
+                <Self as Model>::SUFFIX,
+                raw
+            ))
+    }
 }
 pub trait InstructionSet<const REPLY: bool> {
     const TERMINATOR: u8;
-    const END_BYTE: u8;
     fn to_bytes(command: Self) -> Box<[u8]>;
 }
 
@@ -87,12 +107,11 @@ impl<IO: Write + Read, M: Model> Instrument<IO, M> {
         self.write(&message)?;
         Ok(())
     }
-    pub fn query(&mut self, command: M::QueryCommand) -> Result<String, Error> {
+    pub fn query(&mut self, command: M::QueryCommand) -> Result<&[u8], Error> {
         let message = InstructionSet::to_bytes(command);
         self.write(&message)?;
         self.buf.clear();
-        self.messenger
-            .read_until(M::QueryCommand::END_BYTE, &mut self.buf)?;
-        Ok(String::from_utf8_lossy(&mut self.buf).into())
+        self.messenger.read_until(M::END_BYTE, &mut self.buf)?;
+        Ok(&self.buf)
     }
 }

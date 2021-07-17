@@ -1,21 +1,13 @@
+use super::Protocol;
 use serial::SystemPort;
-
-use crate::config_serial;
-
-pub trait Protocol {
-    type Address: ToString;
-    type Error;
-    type IO: std::io::Read + std::io::Write;
-    fn connect(self, address: Self::Address) -> Result<Self::IO, Self::Error>;
-}
 
 #[derive(Clone, Copy)]
 pub struct Serial {
-    pub(crate) baud_rate: serial::BaudRate,
-    pub(crate) data_bits: serial::CharSize,
-    pub(crate) parity: serial::Parity,
-    pub(crate) stop_bits: serial::StopBits,
-    pub(crate) flow_control: serial::FlowControl,
+    pub baud_rate: serial::BaudRate,
+    pub data_bits: serial::CharSize,
+    pub parity: serial::Parity,
+    pub stop_bits: serial::StopBits,
+    pub flow_control: serial::FlowControl,
 }
 
 impl Default for Serial {
@@ -42,7 +34,7 @@ impl Protocol for Serial {
     type IO = SystemPort;
     fn connect(self, address: Self::Address) -> Result<Self::IO, Self::Error> {
         let mut port = serial::open(&Self::format_address(address))?;
-        config_serial(&mut port, self)?;
+        crate::config_serial(&mut port, self)?;
         Ok(port)
     }
 }

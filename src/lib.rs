@@ -101,6 +101,7 @@ impl PiezoController {
     pub fn z(&self) -> f32 {
         self.z_voltage
     }
+    //real time voltage
     pub fn rt_x(&mut self) -> Result<f32, Box<dyn Error>> {
         self.update()?;
         Ok(self.x_voltage)

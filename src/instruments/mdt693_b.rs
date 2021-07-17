@@ -74,7 +74,9 @@ pub enum Set {
 
 impl InstructionSet<true> for Query {
     const TERMINATOR: u8 = b'\n';
-    fn to_bytes(command: Self) -> Box<[u8]> {
+    const END_BYTE: u8 = b']';
+    type R = &'static str;
+    fn to_bytes(command: Self) -> Self::R {
         match command {
             Query::GetCommands => "?",
             Query::ProductInformation => "id?",
@@ -98,16 +100,14 @@ impl InstructionSet<true> for Query {
             Query::GetRotaryMode => "rotarymode?",
             Query::GetDisableRotaryPushToAdjust => "disablepush?",
         }
-        .bytes()
-        .chain(std::iter::once(Self::TERMINATOR))
-        .collect::<Vec<u8>>()
-        .into_boxed_slice()
     }
 }
 
 impl InstructionSet<false> for Set {
     const TERMINATOR: u8 = b'\n';
-    fn to_bytes(command: Self) -> Box<[u8]> {
+    const END_BYTE: u8 = b']';
+    type R = Box<[u8]>;
+    fn to_bytes(command: Self) -> Self::R {
         match command {
             Set::SetEchoCommand(bo) => format!("echo={}", bo),
             Set::SetDisplayIntensity(n) => format!("intensity={}", n), //0-15

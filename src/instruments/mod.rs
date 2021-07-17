@@ -36,7 +36,9 @@ pub trait Model {
 }
 pub trait InstructionSet<const REPLY: bool> {
     const TERMINATOR: u8;
-    fn to_bytes(command: Self) -> Box<[u8]>;
+    const END_BYTE: u8;
+    type R: AsRef<[u8]>;
+    fn to_bytes(command: Self) -> Self::R;
 }
 
 pub struct Messenger<IO: Write + Read> {
@@ -104,12 +106,12 @@ impl<IO: Write + Read, M: Model> BufRead for Instrument<IO, M> {
 impl<IO: Write + Read, M: Model> Instrument<IO, M> {
     pub fn set(&mut self, command: M::SetCommand) -> Result<(), Error> {
         let message = InstructionSet::to_bytes(command);
-        self.write(&message)?;
+        self.write(message.as_ref())?;
         Ok(())
     }
     pub fn query(&mut self, command: M::QueryCommand) -> Result<&[u8], Error> {
         let message = InstructionSet::to_bytes(command);
-        self.write(&message)?;
+        self.write(&message.as_ref())?;
         self.buf.clear();
         self.messenger.read_until(M::END_BYTE, &mut self.buf)?;
         Ok(&self.buf)

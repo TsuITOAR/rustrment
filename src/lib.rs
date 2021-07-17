@@ -7,6 +7,17 @@ use serial::SerialPort;
 pub mod instruments;
 pub mod protocols;
 
+pub trait DefaultConfig: Model + Sized + Default {
+    type DefaultProtocol: Protocol;
+    const DEFAULT_PROTOCOL: Self::DefaultProtocol;
+    fn default_connect(
+        address: <Self::DefaultProtocol as Protocol>::Address,
+    ) -> instruments::Bound<Self::DefaultProtocol, Self> {
+        let messenger = Messenger::new(Self::DEFAULT_PROTOCOL.connect(address)?);
+        Ok(messenger.bind(Self::default()))
+    }
+}
+
 fn config_serial<T: SerialPort>(port: &mut T, config: Serial) -> serial::Result<()> {
     port.reconfigure(&|settings| {
         settings.set_baud_rate(config.baud_rate)?;
@@ -55,7 +66,7 @@ impl PiezoController {
     pub fn new(address: <Serial as Protocol>::Address) -> Result<Self, Box<dyn Error>> {
         use instruments::mdt693_b::Query;
 
-        let mut messenger = instruments::mdt693_b::new(address)?;
+        let mut messenger = instruments::mdt693_b::MDT693B::default_connect(address)?;
         let x_voltage = Self::extract_num(messenger.query(Query::ReadXVoltage)?)?;
         let y_voltage = Self::extract_num(messenger.query(Query::ReadYVoltage)?)?;
         let z_voltage = Self::extract_num(messenger.query(Query::ReadZVoltage)?)?;
@@ -72,22 +83,22 @@ impl PiezoController {
         &mut self.messenger
     }
     pub fn set_x(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
-        use instruments::mdt693_b::Set;
-        self.messenger.set(Set::SetXVoltage(voltage))?;
+        use instruments::mdt693_b::Command;
+        self.messenger.command(Command::SetXVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
         self.flag.0 = false;
         Ok(())
     }
     pub fn set_y(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
-        use instruments::mdt693_b::Set;
-        self.messenger.set(Set::SetYVoltage(voltage))?;
+        use instruments::mdt693_b::Command;
+        self.messenger.command(Command::SetYVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
         self.flag.1 = false;
         Ok(())
     }
     pub fn set_z(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
-        use instruments::mdt693_b::Set;
-        self.messenger.set(Set::SetZVoltage(voltage))?;
+        use instruments::mdt693_b::Command;
+        self.messenger.command(Command::SetZVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
         self.flag.2 = false;
         Ok(())

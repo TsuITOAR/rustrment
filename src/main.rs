@@ -1,18 +1,12 @@
-use std::{
-    error::Error,
-    io::{Read, Write},
-};
+use std::error::Error;
 
-use rustrument::{
-    protocols::{self, Protocol},
-    PiezoController,
-};
+use rustrument::{instruments::infiniium::Infiniium, DefaultConfig, PiezoController};
 fn main() -> Result<(), Box<dyn Error>> {
-    test_oscill()?;
+    test_osc()?;
     Ok(())
 }
 
-fn test_piezo_controller() -> Result<(), Box<dyn Error>> {
+fn test_piezo() -> Result<(), Box<dyn Error>> {
     println!("Starting PiezoController connecting test\n");
 
     let mut controller = PiezoController::new(5)?;
@@ -24,14 +18,13 @@ fn test_piezo_controller() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn test_oscill() -> Result<(), Box<dyn Error>> {
+fn test_osc() -> Result<(), Box<dyn Error>> {
     print!("Starting Oscilloscope connecting test\n");
-    let mut oscil = protocols::tcp::Tcp.connect("169.254.209.174:5025".parse()?)?;
-    oscil.write("*IDN?\n".as_ref())?;
-    oscil.flush()?;
-    let mut buf = [0u8; 128];
-    oscil.set_read_timeout(Some(std::time::Duration::new(1, 0)))?;
-    oscil.read(&mut buf)?;
-    println!("{}", String::from_utf8_lossy(&buf));
+    let mut osc = Infiniium::default_connect("169.254.209.174:5025".parse()?)?;
+    osc.send_raw("*IDN?")?;
+    println!("{}", String::from_utf8_lossy(osc.read_until(b'\n')?));
+    osc.send_raw(":WAVeform:SOURce CHANnel1")?;
+    osc.send_raw(":WAVeform:DATA?")?;
+    println!("{}", String::from_utf8_lossy(osc.read_until(b'\n')?));
     Ok(())
 }

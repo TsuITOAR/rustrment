@@ -1,26 +1,32 @@
-use super::{InstructionSet, Messenger, Model};
-use crate::protocols::{Protocol, Serial};
+use super::Model;
 
+#[derive(Default)]
 pub struct MDT693B;
+
+impl crate::DefaultConfig for MDT693B {
+    type DefaultProtocol = crate::protocols::Serial;
+    const DEFAULT_PROTOCOL: Self::DefaultProtocol = Self::DefaultProtocol {
+        baud_rate: serial::Baud115200,
+        data_bits: serial::Bits8,
+        parity: serial::ParityNone,
+        stop_bits: serial::Stop1,
+        flow_control: serial::FlowNone,
+    };
+}
 
 impl Model for MDT693B {
     const DESCRIPTION: &'static str = "Piezo controller";
-    type SetCommand = Set;
-    type QueryCommand = Query;
-    const PREFIX: &'static [u8] = &[b'>', b'['];
-    const SUFFIX: &'static [u8] = &[b']'];
+    type Command = Command;
+    type Query = Query;
+    const TERMINATOR: u8 = b'\r';
     const END_BYTE: u8 = b']';
+    fn strip(raw: &[u8]) -> &[u8] {
+        let prefix = [b'>', b'['];
+        let suffix = [b']'];
+        let model = Self::DESCRIPTION;
+        super::strip(raw, &prefix, &suffix, model)
+    }
 }
-pub(crate) const ID: MDT693B = MDT693B;
-type DefaultProtocol = Serial;
-
-pub const DEFAULT_PROTOCOL: DefaultProtocol = Serial {
-    baud_rate: serial::Baud115200,
-    data_bits: serial::Bits8,
-    parity: serial::ParityNone,
-    stop_bits: serial::Stop1,
-    flow_control: serial::FlowNone,
-};
 
 pub enum Query {
     GetCommands,
@@ -46,7 +52,7 @@ pub enum Query {
     GetDisableRotaryPushToAdjust,
 }
 
-pub enum Set {
+pub enum Command {
     SetEchoCommand(bool),
     SetDisplayIntensity(u8), //0-15
     SetAllVoltages(u8),
@@ -72,12 +78,10 @@ pub enum Set {
     SetDisableRotaryPushToAdjust(bool),
 }
 
-impl InstructionSet<true> for Query {
-    const TERMINATOR: u8 = b'\n';
-    const END_BYTE: u8 = b']';
+impl super::Query for Query {
     type R = &'static str;
-    fn to_bytes(command: Self) -> Self::R {
-        match command {
+    fn to_bytes(self) -> Self::R {
+        match self {
             Query::GetCommands => "?",
             Query::ProductInformation => "id?",
             Query::GetEchoCommandValue => "echo?",
@@ -103,46 +107,36 @@ impl InstructionSet<true> for Query {
     }
 }
 
-impl InstructionSet<false> for Set {
-    const TERMINATOR: u8 = b'\n';
-    const END_BYTE: u8 = b']';
+impl super::Command for Command {
     type R = Box<[u8]>;
-    fn to_bytes(command: Self) -> Self::R {
-        match command {
-            Set::SetEchoCommand(bo) => format!("echo={}", bo),
-            Set::SetDisplayIntensity(n) => format!("intensity={}", n), //0-15
-            Set::SetAllVoltages(n) => format!("allvoltage={}", n),
-            Set::SetMasterScanEnable(bo) => format!("msenable={}", bo as u8),
-            Set::SetMasterScanVoltage(n) => format!("msvoltage={}", n),
-            Set::SetXVoltage(n) => format!("xvoltage={}", n),
-            Set::SetYVoltage(n) => format!("yvoltage={}", n),
-            Set::SetZVoltage(n) => format!("zvoltage={}", n),
-            Set::SetMinXVoltage(n) => format!("xmin={}", n),
-            Set::SetMinYVoltage(n) => format!("ymin={}", n),
-            Set::SetMinZVoltage(n) => format!("zmin={}", n),
-            Set::SetMaxXVoltage(n) => format!("xmax={}", n),
-            Set::SetMaxYVoltage(n) => format!("ymax={}", n),
-            Set::SetMaxZVoltage(n) => format!("zmax={}", n),
-            Set::SetVoltageAdjustmentResolution(n) => format!("dacstep={}", n), //1-1000
-            Set::IncrementVoltage => "Up arrow".to_string(),
-            Set::DecrementVoltage => "Down arrow".to_string(),
-            Set::DecreaseChannel => "Left arrow".to_string(),
-            Set::IncreaseChannel => "Right arrow".to_string(),
-            Set::SetFriendlyName(s) => format!("friendly={}", s),
-            Set::SetCompatibilityMode(bo) => format!("cm={}", bo as u8),
+    fn to_bytes(self) -> Self::R {
+        match self {
+            Command::SetEchoCommand(bo) => format!("echo={}", bo),
+            Command::SetDisplayIntensity(n) => format!("intensity={}", n), //0-15
+            Command::SetAllVoltages(n) => format!("allvoltage={}", n),
+            Command::SetMasterScanEnable(bo) => format!("msenable={}", bo as u8),
+            Command::SetMasterScanVoltage(n) => format!("msvoltage={}", n),
+            Command::SetXVoltage(n) => format!("xvoltage={}", n),
+            Command::SetYVoltage(n) => format!("yvoltage={}", n),
+            Command::SetZVoltage(n) => format!("zvoltage={}", n),
+            Command::SetMinXVoltage(n) => format!("xmin={}", n),
+            Command::SetMinYVoltage(n) => format!("ymin={}", n),
+            Command::SetMinZVoltage(n) => format!("zmin={}", n),
+            Command::SetMaxXVoltage(n) => format!("xmax={}", n),
+            Command::SetMaxYVoltage(n) => format!("ymax={}", n),
+            Command::SetMaxZVoltage(n) => format!("zmax={}", n),
+            Command::SetVoltageAdjustmentResolution(n) => format!("dacstep={}", n), //1-1000
+            Command::IncrementVoltage => "Up arrow".to_string(),
+            Command::DecrementVoltage => "Down arrow".to_string(),
+            Command::DecreaseChannel => "Left arrow".to_string(),
+            Command::IncreaseChannel => "Right arrow".to_string(),
+            Command::SetFriendlyName(s) => format!("friendly={}", s),
+            Command::SetCompatibilityMode(bo) => format!("cm={}", bo as u8),
             //Set::SetRotaryMode()=>"",//0 1 -1
-            Set::SetDisableRotaryPushToAdjust(bo) => format!("disablepush={}", bo as u8),
+            Command::SetDisableRotaryPushToAdjust(bo) => format!("disablepush={}", bo as u8),
         }
         .bytes()
-        .chain(std::iter::once(Self::TERMINATOR))
         .collect::<Vec<u8>>()
         .into_boxed_slice()
     }
-}
-
-pub fn new(
-    address: <DefaultProtocol as super::Protocol>::Address,
-) -> super::Bound<DefaultProtocol, MDT693B> {
-    let messenger = Messenger::new(DEFAULT_PROTOCOL.connect(address)?);
-    Ok(messenger.bind(ID))
 }

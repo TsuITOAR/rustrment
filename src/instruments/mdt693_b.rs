@@ -18,14 +18,8 @@ impl Model for MDT693B {
     const DESCRIPTION: &'static str = "Piezo controller";
     type Command = Command;
     type Query = Query;
-    const TERMINATOR: u8 = b'\r';
+    const TERMINATOR: u8 = b'\n';
     const END_BYTE: u8 = b']';
-    fn strip(raw: &[u8]) -> &[u8] {
-        let prefix = [b'>', b'['];
-        let suffix = [b']'];
-        let model = Self::DESCRIPTION;
-        super::strip(raw, &prefix, &suffix, model)
-    }
 }
 
 pub enum Query {

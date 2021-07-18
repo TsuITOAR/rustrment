@@ -2,7 +2,7 @@ use std::error::Error;
 
 use rustrument::{instruments::infiniium::Infiniium, DefaultConfig, PiezoController};
 fn main() -> Result<(), Box<dyn Error>> {
-    test_osc()?;
+    test_piezo()?;
     Ok(())
 }
 
@@ -25,6 +25,17 @@ fn test_osc() -> Result<(), Box<dyn Error>> {
     println!("{}", String::from_utf8_lossy(osc.read_until(b'\n')?));
     osc.send_raw(":WAVeform:SOURce CHANnel1")?;
     osc.send_raw(":WAVeform:DATA?")?;
-    println!("{}", String::from_utf8_lossy(osc.read_until(b'\n')?));
+    println!(
+        "{:?}",
+        std::str::from_utf8(osc.read_until(b'\n')?)?
+            .lines()
+            .next()
+            .expect("no data received")
+            .split_terminator(',')
+            .map(|x| -> f32 { x.parse().unwrap() })
+            .collect::<Vec<f32>>()
+    );
+    osc.send_raw(":ACQuire:SRATe:ANALog 250E+6")?;
+    osc.send_raw("STOP")?;
     Ok(())
 }

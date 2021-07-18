@@ -9,7 +9,7 @@ use std::{
     u8,
 };
 
-pub(crate) type Bound<P, ID> =
+pub type Bound<P, ID> =
     Result<Instrument<Messenger<<P as Protocol>::IO>, ID>, <P as Protocol>::Error>;
 
 pub trait Model {
@@ -18,10 +18,6 @@ pub trait Model {
     type Query: Query;
     const TERMINATOR: u8;
     const END_BYTE: u8;
-    //TO-DO: change this to Result instead of panic
-    fn strip(raw: &[u8]) -> &[u8] {
-        raw
-    }
 }
 pub trait Command {
     type R: AsRef<[u8]>;
@@ -139,17 +135,4 @@ impl<IO: Write + Read, M: Model> Instrument<IO, M> {
         self.messenger.read_until(byte, &mut self.buf)?;
         Ok(&self.buf)
     }
-}
-
-fn strip<'a>(raw: &'a [u8], prefix: &[u8], suffix: &[u8], model: &str) -> &'a [u8] {
-    raw.strip_prefix(prefix)
-        .expect(&format!(
-            "unexpected message prefix returned by {}, expected prefix {:?}, found {:?}",
-            model, prefix, raw
-        ))
-        .strip_suffix(suffix)
-        .expect(&format!(
-            "unexpected message suffix returned by {}, expected suffix {:?}, found {:?}",
-            model, suffix, raw
-        ))
 }

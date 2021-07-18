@@ -1,8 +1,7 @@
-use std::{error::Error, fmt::Display};
-
 use instruments::{mdt693_b::MDT693B, Instrument, Messenger, Model};
 use protocols::{Protocol, Serial};
 use serial::SerialPort;
+use std::{error::Error, fmt::Display};
 
 pub mod instruments;
 pub mod protocols;
@@ -40,7 +39,27 @@ pub struct PiezoController {
 
 impl PiezoController {
     fn extract_num(message: &[u8]) -> Result<f32, Box<dyn Error>> {
-        Ok(std::str::from_utf8(<MDT693B as Model>::strip(message))?.parse()?)
+        Ok(std::str::from_utf8({
+            let temp = message
+                .split(|x| *x == b'\n' || *x == b'\r')
+                .last()
+                .ok_or::<Box<dyn Error>>("no line received".into())?;
+            let mut iter = temp
+                .iter()
+                .enumerate()
+                .skip_while(|x| !(*(*x).1 as char).is_numeric())
+                .take_while(|x| *(*x).1 != b']');
+            if let Some((start, _)) = iter.next() {
+                if let Some((end, _)) = iter.last() {
+                    &temp[start..end + 1]
+                } else {
+                    &temp[start..start + 1]
+                }
+            } else {
+                return Err("no number found".into());
+            }
+        })?
+        .parse()?)
     }
 
     pub fn update(&mut self) -> Result<(), Box<dyn Error>> {

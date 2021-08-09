@@ -16,7 +16,7 @@ fn main() {
             Ok(entry) => {
                 if !entry
                     .metadata()
-                    .expect("error identifying file type")
+                    .expect("error getting file metadata")
                     .is_file()
                 {
                     continue;

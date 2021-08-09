@@ -1,6 +1,6 @@
+mod onc_rpc;
 pub mod serial;
 pub mod tcp;
-
 pub use self::serial::Serial;
 pub use self::tcp::Tcp;
 pub trait Protocol {

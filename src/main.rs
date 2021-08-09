@@ -1,8 +1,15 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    io::{BufRead, Read, Write},
+};
 
-use rustrument::{instruments::infiniium::Infiniium, DefaultConfig, PiezoController};
+use rustrument::{
+    instruments::{infiniium::Infiniium, Messenger},
+    protocols::{Protocol, Tcp},
+    DefaultConfig, PiezoController,
+};
 fn main() -> Result<(), Box<dyn Error>> {
-    test_piezo()?;
+    test_awg_rigol()?;
     Ok(())
 }
 
@@ -37,5 +44,40 @@ fn test_osc() -> Result<(), Box<dyn Error>> {
     );
     osc.send_raw(":ACQuire:SRATe:ANALog 250E+6")?;
     osc.send_raw("STOP")?;
+    Ok(())
+}
+
+fn test_osc_rigol() -> Result<(), Box<dyn Error>> {
+    let m = Tcp::default();
+    let mut mess =
+        std::io::BufReader::new(Messenger::new(m.connect("169.254.120.131:5555".parse()?)?));
+    println!("connect success");
+    mess.get_mut().write(":WAVeform:FORMat ASCii\n".as_ref())?;
+    mess.get_mut().write(":WAVeform:MODE MAXimum\n".as_ref())?;
+    for i in [1].iter() {
+        mess.get_mut()
+            .write(format!(":WAVeform:STOP {}\n", i * 1000_000).as_ref())?;
+        mess.get_mut().write(":WAVeform:DATA?\n".as_ref())?;
+        let mut buf = Vec::new();
+        mess.read_until(b'\n', &mut buf)?;
+        println!("read success");
+        println!(
+            "{}\n{}",
+            String::from_utf8_lossy(buf.as_ref()),
+            buf.len() / 14,
+        );
+    }
+
+    Ok(())
+}
+
+fn test_awg_rigol() -> Result<(), Box<dyn Error>> {
+    let m = Tcp;
+    let mut mess = std::io::BufReader::new(Messenger::new(m.connect("192.168.3.94:111".parse()?)?));
+    println!("connect success");
+    
+    let mut buf = [0_u8; 4];
+    mess.read(&mut buf)?;
+    println!("{}", u32::from_be_bytes(buf));
     Ok(())
 }

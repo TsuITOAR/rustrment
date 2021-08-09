@@ -1,3 +1,5 @@
+use crate::DefaultConfig;
+
 use super::Model;
 
 #[derive(Default)]
@@ -133,4 +135,11 @@ impl super::Command for Command {
         .collect::<Vec<u8>>()
         .into_boxed_slice()
     }
+}
+
+#[test]
+fn stress_serial() -> Result<(), Box<dyn std::error::Error>> {
+    let mut handler = MDT693B::default_connect(5)?;
+    handler.query(Query::GetCommands)?;
+    Ok(())
 }

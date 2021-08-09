@@ -23,7 +23,7 @@ fn main() {
                 } else {
                     let path = entry.path();
                     let path = path.to_str().unwrap();
-                    xdrgen::compile(path).expect(&format!("xdrgen {} failed", path));
+                    xdrgen::compile(path).expect(&format!("xdrgen '{}' failed", path));
                     xdr_rs.push_str(&format!(
                         r##"include!(concat!(r#"{}"#, "/{}_xdr.rs"));"##,
                         out_dir,

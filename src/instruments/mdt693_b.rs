@@ -1,11 +1,10 @@
 use crate::DefaultConfig;
-
 use super::Model;
 
 #[derive(Default)]
 pub struct MDT693B;
 
-impl crate::DefaultConfig for MDT693B {
+impl DefaultConfig for MDT693B {
     type DefaultProtocol = crate::protocols::Serial;
     const DEFAULT_PROTOCOL: Self::DefaultProtocol = Self::DefaultProtocol {
         baud_rate: serial::Baud115200,
@@ -128,7 +127,7 @@ impl super::Command for Command {
             Command::IncreaseChannel => "Right arrow".to_string(),
             Command::SetFriendlyName(s) => format!("friendly={}", s),
             Command::SetCompatibilityMode(bo) => format!("cm={}", bo as u8),
-            //Set::SetRotaryMode()=>"",//0 1 -1
+            //Command::SetRotaryMode()=>"",//0 1 -1
             Command::SetDisableRotaryPushToAdjust(bo) => format!("disablepush={}", bo as u8),
         }
         .bytes()

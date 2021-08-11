@@ -1,4 +1,3 @@
-
 struct mapping {
     unsigned int prog;
     unsigned int vers;

@@ -8,8 +8,8 @@ enum Device_AddrFamily { /* used by interrupts */
 };
 typedef long Device_Flags;
     /* Error types */
-    typedef long Device_ErrorCode;
-    struct Device_Error {
+typedef long Device_ErrorCode;
+struct Device_Error {
     Device_ErrorCode error;
 };
 struct Create_LinkParms {

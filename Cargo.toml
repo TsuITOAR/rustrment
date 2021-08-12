@@ -9,6 +9,8 @@ edition = "2018"
 [dependencies]
 serial = "*"
 xdr-codec = "*"
+num_enum= "*"
+onc-rpc = "*"
 
 [build-dependencies]
 xdrgen = "*"

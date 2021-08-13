@@ -8,9 +8,9 @@ edition = "2018"
 
 [dependencies]
 serial = "*"
-xdr-codec = "*"
-num_enum= "*"
-onc-rpc = "*"
+num_enum = "*"
+thiserror = "1.0"
+bytes = "0.5"
 
 [build-dependencies]
-xdrgen = "*"
+fastxdr = "1.0.2"

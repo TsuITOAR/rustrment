@@ -7,10 +7,10 @@ struct mapping {
 const IPPROTO_TCP = 6;      /* protocol number for TCP/IP */
 const IPPROTO_UDP = 17;     /* protocol number for UDP/IP */
 
-struct *pmaplist {
-    mapping map;
-    pmaplist next;
-};
+//struct *pmaplist {
+//    mapping map;
+//    pmaplist next;
+//};
 
 struct call_args {
     unsigned int prog;

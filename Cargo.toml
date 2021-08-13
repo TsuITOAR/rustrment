@@ -9,8 +9,9 @@ edition = "2018"
 [dependencies]
 serial = "*"
 num_enum = "*"
-thiserror = "1.0"
-bytes = "0.5"
+thiserror = "*"
+bytes = "*"
+onc-rpc = "*"
 
 [build-dependencies]
-fastxdr = "1.0.2"
+fastxdr = "*"

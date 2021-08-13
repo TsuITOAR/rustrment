@@ -1,7 +1,10 @@
 mod port_mapper;
 mod xdr;
+use bytes::{Bytes, BytesMut};
 use onc_rpc::{AcceptedReply, CallBody, MessageType, ReplyBody, RpcMessage};
 use std::io::{Read, Result, Write};
+
+const HEAD_LEN: usize = 4;
 pub trait OncRpc {
     const PROGRAM: u32;
     const VERSION: u32;
@@ -10,12 +13,8 @@ pub trait OncRpc {
     type Reader: std::io::Read;
     fn writer(&mut self) -> &mut Self::Writer;
     fn reader(&mut self) -> &mut Self::Reader;
-    fn call<'a, T, P>(
-        &mut self,
-        xid: u32,
-        call_body: CallBody<T, P>,
-        buf: &'a mut Vec<u8>,
-    ) -> Result<RpcMessage<&'a [u8], &'a [u8]>>
+    fn buffer(&mut self) -> BytesMut;
+    fn call<'a, T, P>(&'a mut self, xid: u32, call_body: CallBody<T, P>) -> Result<&'a [u8]>
     where
         T: AsRef<[u8]>,
         P: AsRef<[u8]>,
@@ -24,10 +23,51 @@ pub trait OncRpc {
             self.writer(),
             &RpcMessage::new(xid, MessageType::Call(call_body)).serialise()?,
         )?;
-        buf.clear();
-        let reply = raw_rpc_read(self.reader(), buf)?;
+        let (content, reply) = self.read()?;
         if reply.xid() == xid {
-            Ok(reply)
+            match reply.reply_body().ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "expected reply, found call",
+            ))? {
+                ReplyBody::Accepted(a) => match a.status() {
+                    onc_rpc::AcceptedStatus::Success(p) => Ok(p),
+
+                    onc_rpc::AcceptedStatus::ProgramUnavailable => Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "program unavailable",
+                    )),
+                    onc_rpc::AcceptedStatus::ProgramMismatch { low, high } => {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("program mismatch, supported version {} - {}", low, high),
+                        ))
+                    }
+                    onc_rpc::AcceptedStatus::ProcedureUnavailable => Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "procedure unavailable",
+                    )),
+                    onc_rpc::AcceptedStatus::GarbageArgs => Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "garbage args",
+                    )),
+                    onc_rpc::AcceptedStatus::SystemError => Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "system error",
+                    )),
+                },
+                ReplyBody::Denied(d) => match d {
+                    onc_rpc::RejectedReply::RpcVersionMismatch { low, high } => {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("rpc version mismatch, supported version {} - {}", low, high),
+                        ))
+                    }
+                    onc_rpc::RejectedReply::AuthError(a) => Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        format!("authentication failed, {:?}", a),
+                    )),
+                },
+            }
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -45,28 +85,51 @@ pub trait OncRpc {
             &RpcMessage::new(xid, MessageType::Reply(reply_body)).serialise()?,
         )
     }
-    fn read_call<'a>(&mut self, buf: &'a mut Vec<u8>) -> Result<RpcMessage<&'a [u8], &'a [u8]>> {
-        raw_rpc_read(self.reader(), buf)
+    fn read(&mut self) -> Result<(Bytes, RpcMessage<&[u8], &[u8]>)> {
+        let buf = self.buffer().clone();
+        let content = raw_rpc_read(self.reader(), buf)?;
+        Ok((content, parse_bytes(content.as_ref())?))
+    }
+}
+
+fn parse_bytes<'a>(bytes: &'a [u8]) -> Result<RpcMessage<&'a [u8], &'a [u8]>> {
+    match RpcMessage::from_bytes(bytes.as_ref()) {
+        Ok(m) => Ok(m),
+        Err(onc_rpc::Error::IncompleteHeader)
+        | Err(onc_rpc::Error::IncompleteMessage {
+            buffer_len: _,
+            expected: _,
+        }) => unreachable!(),
+        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
     }
 }
 
 fn raw_rpc_write<W: Write, M: AsRef<[u8]>>(writer: &mut W, message: &M) -> Result<()> {
     writer.write_all(message.as_ref())
 }
-fn raw_rpc_read<'a, R: Read>(
-    reader: &mut R,
-    buf: &'a mut Vec<u8>,
-) -> Result<RpcMessage<&'a [u8], &'a [u8]>> {
-    buf.clear();
-    let mut header = [0_u8; 4];
-    reader.read_exact(&mut header)?;
-    let body_len: u32 =
-        u32::from_be_bytes([header[0] & (!(1 << 4)), header[1], header[2], header[3]]);
-    buf.extend_from_slice(&header);
-    buf.resize(body_len as usize + 4, 0);
-    reader.read_exact(&mut buf[5..])?;
-    match RpcMessage::from_bytes(&buf[..]) {
-        Ok(message) => Ok(message),
-        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+
+fn raw_rpc_read<'a, R: Read>(reader: &mut R, mut buf: BytesMut) -> Result<Bytes> {
+    assert!(buf.is_empty(), "expect buffer empty");
+    buf.reserve(HEAD_LEN);
+    loop {
+        reader.read(buf.as_mut())?;
+
+        let expected_len =
+            match onc_rpc::expected_message_len(buf.clone().as_ref() /* zero-copy clone */) {
+                Ok(len) => len as usize,
+                Err(onc_rpc::Error::IncompleteHeader) => continue,
+                Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+            };
+
+        if expected_len > buf.len() {
+            buf.reserve(expected_len - buf.len());
+            // The buffer does not contain a full message, read more data
+            continue;
+        } else {
+            // Split the buffer into a single message
+            let msg_bytes = buf.split_to(expected_len as usize);
+
+            return Ok(msg_bytes.freeze());
+        }
     }
 }

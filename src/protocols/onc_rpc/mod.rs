@@ -95,11 +95,9 @@ pub trait OncRpc {
 fn parse_bytes<'a>(bytes: &'a [u8]) -> Result<RpcMessage<&'a [u8], &'a [u8]>> {
     match RpcMessage::from_bytes(bytes.as_ref()) {
         Ok(m) => Ok(m),
-        Err(onc_rpc::Error::IncompleteHeader)
-        | Err(onc_rpc::Error::IncompleteMessage {
-            buffer_len: _,
-            expected: _,
-        }) => unreachable!(),
+        Err(onc_rpc::Error::IncompleteHeader) | Err(onc_rpc::Error::IncompleteMessage { .. }) => {
+            unreachable!()
+        }
         Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
     }
 }

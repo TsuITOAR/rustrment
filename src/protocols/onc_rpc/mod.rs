@@ -1,10 +1,20 @@
 mod port_mapper;
 mod xdr;
 use bytes::{Bytes, BytesMut};
-use onc_rpc::{AcceptedReply, CallBody, MessageType, ReplyBody, RpcMessage};
-use std::io::{Read, Result, Write};
+use onc_rpc::{CallBody, MessageType, ReplyBody, RpcMessage};
+use std::{
+    convert::TryFrom,
+    io::{Read, Result, Write},
+};
 
 const HEAD_LEN: usize = 4;
+
+pub struct OncResult(pub Bytes);
+impl From<Bytes> for OncResult {
+    fn from(b: Bytes) -> Self {
+        Self(b)
+    }
+}
 pub trait OncRpc {
     const PROGRAM: u32;
     const VERSION: u32;
@@ -14,7 +24,7 @@ pub trait OncRpc {
     fn writer(&mut self) -> &mut Self::Writer;
     fn reader(&mut self) -> &mut Self::Reader;
     fn buffer(&mut self) -> BytesMut;
-    fn call<'a, T, P>(&'a mut self, xid: u32, call_body: CallBody<T, P>) -> Result<&'a [u8]>
+    fn call<'a, T, P>(&'a mut self, xid: u32, call_body: CallBody<T, P>) -> Result<OncResult>
     where
         T: AsRef<[u8]>,
         P: AsRef<[u8]>,
@@ -23,14 +33,14 @@ pub trait OncRpc {
             self.writer(),
             &RpcMessage::new(xid, MessageType::Call(call_body)).serialise()?,
         )?;
-        let (content, reply) = self.read()?;
+        let reply = self.read()?;
         if reply.xid() == xid {
             match reply.reply_body().ok_or(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok(p),
+                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone().into()),
 
                     onc_rpc::AcceptedStatus::ProgramUnavailable => Err(std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -85,15 +95,14 @@ pub trait OncRpc {
             &RpcMessage::new(xid, MessageType::Reply(reply_body)).serialise()?,
         )
     }
-    fn read(&mut self) -> Result<(Bytes, RpcMessage<&[u8], &[u8]>)> {
+    fn read(&mut self) -> Result<RpcMessage<Bytes, Bytes>> {
         let buf = self.buffer().clone();
-        let content = raw_rpc_read(self.reader(), buf)?;
-        Ok((content, parse_bytes(content.as_ref())?))
+        Ok(parse_bytes(raw_rpc_read(self.reader(), buf)?)?)
     }
 }
 
-fn parse_bytes<'a>(bytes: &'a [u8]) -> Result<RpcMessage<&'a [u8], &'a [u8]>> {
-    match RpcMessage::from_bytes(bytes.as_ref()) {
+fn parse_bytes(bytes: Bytes) -> Result<RpcMessage<Bytes, Bytes>> {
+    match RpcMessage::try_from(bytes) {
         Ok(m) => Ok(m),
         Err(onc_rpc::Error::IncompleteHeader) | Err(onc_rpc::Error::IncompleteMessage { .. }) => {
             unreachable!()

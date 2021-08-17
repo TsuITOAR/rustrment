@@ -1,4 +1,4 @@
-mod onc_rpc;
+pub mod onc_rpc;
 pub mod serial;
 pub mod tcp;
 pub use self::serial::Serial;

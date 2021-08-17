@@ -12,6 +12,7 @@ num_enum = "*"
 thiserror = "*"
 bytes = "*"
 onc-rpc = "*"
+rand = "*"
 
 [build-dependencies]
 fastxdr = "*"

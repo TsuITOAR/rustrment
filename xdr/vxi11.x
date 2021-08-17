@@ -4,8 +4,8 @@ typedef int long;
 typedef unsigned int ulong; //unsigned long
 typedef int short;
 typedef unsigned int ushort;//unsigned short
-typedef unsigned int uchar;//unsigned char
-
+typedef unsigned int xdr_uchar;//unsigned char
+typedef unsigned int xdr_char;//char
 // Core and Abort Channel Protocol
 
 /* Types */
@@ -50,7 +50,7 @@ struct Device_ReadParms {
     ulong io_timeout; /* time to wait for I/O */
     ulong lock_timeout; /* time to wait for lock */
     Device_Flags flags;
-    char termChar; /* valid if flags & termchrset */
+    xdr_char termChar; /* valid if flags & termchrset */
 };
 struct Device_ReadResp {
     Device_ErrorCode error;
@@ -59,7 +59,7 @@ struct Device_ReadResp {
 };
 struct Device_ReadStbResp {
     Device_ErrorCode error; /* error code */
-    uchar stb; /* the returned status byte */
+    xdr_uchar stb; /* the returned status byte */
 };
 struct Device_GenericParms {
     Device_Link lid; /* Device_Link id from connect call */

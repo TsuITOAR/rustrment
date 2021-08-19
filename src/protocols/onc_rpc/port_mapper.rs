@@ -19,18 +19,6 @@ impl<S> PortMapper<S> {
             buffer: BytesMut::new(),
         }
     }
-    pub fn new_tcp<A: Into<IpAddr>>(addr: A) -> Result<PortMapper<TcpStream>> {
-        Ok(PortMapper {
-            io: TcpStream::connect(SocketAddr::new(addr.into(), PORT))?,
-            buffer: BytesMut::new(),
-        })
-    }
-    pub fn new_udp(local_port: u16) -> Result<PortMapper<UdpSocket>> {
-        Ok(PortMapper {
-            io: UdpSocket::bind(SocketAddr::new("127.0.0.1".parse().unwrap(), local_port))?,
-            buffer: BytesMut::new(),
-        })
-    }
     pub fn get_io(&self) -> &S {
         &self.io
     }
@@ -38,38 +26,47 @@ impl<S> PortMapper<S> {
         &mut self.io
     }
 }
+impl PortMapper<TcpStream> {
+    pub fn new_tcp<A: Into<IpAddr>>(addr: A) -> Result<PortMapper<TcpStream>> {
+        Ok(PortMapper {
+            io: TcpStream::connect(SocketAddr::new(addr.into(), PORT))?,
+            buffer: BytesMut::new(),
+        })
+    }
+}
+impl PortMapper<UdpSocket> {
+    pub fn new_udp(local_port: u16) -> Result<PortMapper<UdpSocket>> {
+        Ok(PortMapper {
+            io: UdpSocket::bind(SocketAddr::new("127.0.0.1".parse().unwrap(), local_port))?,
+            buffer: BytesMut::new(),
+        })
+    }
+}
 
 impl OncRpc for PortMapper<TcpStream> {
     const PROGRAM: u32 = 100000;
     const VERSION: u32 = 2;
-    type Procedure = Procedure;
     fn raw_read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.io.read(buf)
     }
     fn raw_write(&mut self, buf: &[u8]) -> Result<usize> {
+        println!("{}\n{:X?}", buf.len(), buf);
         self.io.write(buf)
     }
     fn buffer(&self) -> BytesMut {
         self.buffer.clone()
     }
-}
-
-impl OncRpc for PortMapper<UdpSocket> {
-    const PROGRAM: u32 = 100000;
-    const VERSION: u32 = 2;
-    type Procedure = Procedure;
-    fn raw_read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.io.recv(buf)
-    }
-    fn raw_write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.io.send(buf)
-    }
-    fn buffer(&self) -> BytesMut {
-        self.buffer.clone()
+    fn flush(&mut self) -> Result<()> {
+        self.io.flush()
     }
 }
 
 impl OncRpcBroadcast for PortMapper<UdpSocket> {
+    const PROGRAM: u32 = 100000;
+    const VERSION: u32 = 2;
+    fn buffer(&self) -> BytesMut {
+        self.buffer.clone()
+    }
     fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
         self.io.recv_from(buf)
     }
@@ -82,7 +79,8 @@ pub enum Procedure {
     Set,
     Unset,
     GetPort,
-    //pamamplist unsupported yet Dump,
+    //pamamplist unsupported yet
+    //Dump,
     CallIt,
 }
 impl Into<u32> for Procedure {

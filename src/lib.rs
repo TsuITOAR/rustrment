@@ -5,7 +5,8 @@ use std::{error::Error, fmt::Display};
 
 pub mod instruments;
 pub mod protocols;
-
+#[macro_use]
+extern crate serde;
 pub trait DefaultConfig: Model + Sized + Default {
     type DefaultProtocol: Protocol;
     const DEFAULT_PROTOCOL: Self::DefaultProtocol;

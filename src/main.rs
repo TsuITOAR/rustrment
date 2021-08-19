@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::{
     error::Error,
     io::{BufRead, Read, Write},
@@ -8,11 +9,27 @@ use rustrument::{
     protocols::{Protocol, Tcp},
     DefaultConfig, PiezoController,
 };
+
 fn main() -> Result<(), Box<dyn Error>> {
-    test_awg_rigol()?;
+    test_port_mapper::<std::net::IpAddr>("192.168.31.156".parse()?)?;
     Ok(())
 }
-
+fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Error>> {
+    use rustrument::protocols::onc_rpc::{port_mapper::*, *};
+    use serde_xdr::{from_bytes, to_bytes};
+    let mut handler = PortMapper::new_tcp(addr)?;
+    let reply: u32 = from_bytes(handler.call_anonymously(
+        Procedure::GetPort,
+        to_bytes(&xdr::mapping {
+            port: 0,
+            prog: 100000,
+            prot: xdr::IPPROTO_TCP,
+            vers: 2,
+        })?,
+    )?)?;
+    println!("got reply: {}", reply);
+    Ok(())
+}
 fn test_piezo() -> Result<(), Box<dyn Error>> {
     println!("Starting PiezoController connecting test\n");
 
@@ -75,7 +92,7 @@ fn test_awg_rigol() -> Result<(), Box<dyn Error>> {
     let m = Tcp;
     let mut mess = std::io::BufReader::new(Messenger::new(m.connect("192.168.3.94:111".parse()?)?));
     println!("connect success");
-    
+
     let mut buf = [0_u8; 4];
     mess.read(&mut buf)?;
     println!("{}", u32::from_be_bytes(buf));

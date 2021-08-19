@@ -13,6 +13,8 @@ thiserror = "*"
 bytes = "*"
 onc-rpc = "*"
 rand = "*"
+serde = { version = "^1", features = ["derive"] }
+serde-xdr = "*"
 
 [build-dependencies]
 fastxdr = "*"

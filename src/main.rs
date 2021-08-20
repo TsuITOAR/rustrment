@@ -12,14 +12,15 @@ use rustrument::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper::<std::net::IpAddr>("192.168.3.96".parse()?)?;
+    test_port_mapper::<std::net::IpAddr>("192.168.3.255".parse()?)?;
     Ok(())
 }
 fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Error>> {
     use rustrument::protocols::onc_rpc::{port_mapper::*, *};
     use serde_xdr::{from_bytes, to_bytes};
-    let mut handler = PortMapper::new_udp(1000)?;
-    let reply: u32 = from_bytes(handler.call_to_anonymously(
+    use std::time::Duration;
+    let mut handler = PortMapper::new_udp(1000, Duration::from_secs(2))?;
+    let mut stream = handler.broadcast_anonymously(
         Procedure::GetPort,
         to_bytes(&xdr::mapping {
             port: 0,
@@ -28,8 +29,15 @@ fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Er
             vers: 1,
         })?,
         SocketAddr::new(addr.into(), PORT),
-    )?)?;
-    println!("got reply: {}", reply);
+    )?;
+    loop {
+        let reply = stream.next().expect("stream never returns None")?;
+        println!(
+            "got reply {:0>5} from {:>}",
+            from_bytes::<_, u32>(reply.0)?,
+            reply.1.to_string()
+        );
+    }
     Ok(())
 }
 fn test_piezo() -> Result<(), Box<dyn Error>> {

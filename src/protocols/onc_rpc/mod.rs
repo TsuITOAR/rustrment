@@ -229,7 +229,16 @@ pub trait OncRpcBroadcast {
         );
         self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
         let reply = match self.recv_from()? {
-            (r, f) if f == addr => r,
+            (r, f)
+                if f == addr
+                    || (if let std::net::IpAddr::V4(a) = addr.ip() {
+                        a.octets()[3] == 255
+                    } else {
+                        true
+                    }) =>
+            {
+                r
+            }
             //another message got when waiting for reply
             _ => unimplemented!(),
         };
@@ -283,6 +292,48 @@ pub trait OncRpcBroadcast {
         addr: A,
     ) -> Result<Bytes> {
         self.call_to::<P, &[u8], C, A>(
+            procedure,
+            AuthFlavor::AuthNone(None),
+            AuthFlavor::AuthNone(None),
+            content,
+            addr,
+        )
+    }
+    fn broadcast<'a, P: Into<u32>, T: AsRef<[u8]>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+        &'a mut self,
+        procedure: P,
+        auth_credentials: AuthFlavor<T>,
+        auth_verifier: AuthFlavor<T>,
+        content: C,
+        addr: A,
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(Bytes, SocketAddr)>> + 'a>>>
+    {
+        let xid = self.gen_xid();
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .expect("invalid socket address");
+        let call_body = CallBody::new(
+            Self::PROGRAM,
+            Self::VERSION,
+            procedure.into(),
+            auth_credentials,
+            auth_verifier,
+            content.as_ref(),
+        );
+        self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
+        Ok(std::iter::from_fn(Box::new(move || {
+            Some(stream_receive(self, xid))
+        })))
+    }
+    fn broadcast_anonymously<'a, P: Into<u32>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+        &'a mut self,
+        procedure: P,
+        content: C,
+        addr: A,
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(Bytes, SocketAddr)>> + 'a>>>
+    {
+        self.broadcast::<P, &[u8], C, A>(
             procedure,
             AuthFlavor::AuthNone(None),
             AuthFlavor::AuthNone(None),
@@ -371,5 +422,55 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for MyCursor<T> {
     fn as_mut(&mut self) -> &mut [u8] {
         debug_assert!(self.inner.as_ref().len() >= self.filled);
         &mut self.inner.as_mut()[self.filled..]
+    }
+}
+
+fn stream_receive<S: OncRpcBroadcast + ?Sized>(s: &mut S, xid: u32) -> Result<(Bytes, SocketAddr)> {
+    {
+        let (reply, addr) = match s.recv_from()? {
+            (r, addr) => (r, addr),
+        };
+        if reply.xid() == xid {
+            match reply.reply_body().ok_or(Error::new(
+                ErrorKind::InvalidInput,
+                "expected reply, found call",
+            ))? {
+                ReplyBody::Accepted(a) => match a.status() {
+                    onc_rpc::AcceptedStatus::Success(p) => Ok((p.clone(), addr)),
+
+                    onc_rpc::AcceptedStatus::ProgramUnavailable => {
+                        Err(Error::new(ErrorKind::Other, "program unavailable"))
+                    }
+                    onc_rpc::AcceptedStatus::ProgramMismatch { low, high } => Err(Error::new(
+                        ErrorKind::Other,
+                        format!("program mismatch, supported version {} - {}", low, high),
+                    )),
+                    onc_rpc::AcceptedStatus::ProcedureUnavailable => {
+                        Err(Error::new(ErrorKind::Other, "procedure unavailable"))
+                    }
+                    onc_rpc::AcceptedStatus::GarbageArgs => {
+                        Err(Error::new(ErrorKind::Other, "garbage args"))
+                    }
+                    onc_rpc::AcceptedStatus::SystemError => {
+                        Err(Error::new(ErrorKind::Other, "system error"))
+                    }
+                },
+                ReplyBody::Denied(d) => match d {
+                    onc_rpc::RejectedReply::RpcVersionMismatch { low, high } => Err(Error::new(
+                        ErrorKind::Other,
+                        format!("rpc version mismatch, supported version {} - {}", low, high),
+                    )),
+                    onc_rpc::RejectedReply::AuthError(a) => Err(Error::new(
+                        ErrorKind::PermissionDenied,
+                        format!("authentication failed, {:?}", a),
+                    )),
+                },
+            }
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("unmatched xid, expected {}, got {}", xid, reply.xid(),),
+            ))
+        }
     }
 }

@@ -3,6 +3,7 @@ use bytes::BytesMut;
 use std::{
     io::{Read, Result, Write},
     net::{IpAddr, SocketAddr, TcpStream, UdpSocket},
+    time::Duration,
 };
 
 pub const PORT: u16 = 111;
@@ -27,17 +28,27 @@ impl<S> PortMapper<S> {
     }
 }
 impl PortMapper<TcpStream> {
-    pub fn new_tcp<A: Into<IpAddr>>(addr: A) -> Result<PortMapper<TcpStream>> {
+    pub fn new_tcp<A: Into<IpAddr>, D: Into<Option<Duration>>>(
+        addr: A,
+        dur: D,
+    ) -> Result<PortMapper<TcpStream>> {
+        let io = TcpStream::connect(SocketAddr::new(addr.into(), PORT))?;
+        io.set_read_timeout(dur.into())?;
         Ok(PortMapper {
-            io: TcpStream::connect(SocketAddr::new(addr.into(), PORT))?,
+            io,
             buffer: BytesMut::new(),
         })
     }
 }
 impl PortMapper<UdpSocket> {
-    pub fn new_udp(local_port: u16) -> Result<PortMapper<UdpSocket>> {
+    pub fn new_udp<D: Into<Option<Duration>>>(
+        local_port: u16,
+        dur: D,
+    ) -> Result<PortMapper<UdpSocket>> {
+        let io = UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), local_port))?;
+        io.set_read_timeout(dur.into())?;
         Ok(PortMapper {
-            io: UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), local_port))?,
+            io,
             buffer: BytesMut::new(),
         })
     }

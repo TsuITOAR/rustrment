@@ -37,7 +37,7 @@ impl PortMapper<TcpStream> {
 impl PortMapper<UdpSocket> {
     pub fn new_udp(local_port: u16) -> Result<PortMapper<UdpSocket>> {
         Ok(PortMapper {
-            io: UdpSocket::bind(SocketAddr::new("127.0.0.1".parse().unwrap(), local_port))?,
+            io: UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), local_port))?,
             buffer: BytesMut::new(),
         })
     }
@@ -53,7 +53,6 @@ impl OncRpc for PortMapper<TcpStream> {
         self.io.read(buf)
     }
     fn raw_write(&mut self, buf: &[u8]) -> Result<usize> {
-        println!("{}\n{:X?}", buf.len(), buf);
         self.io.write(buf)
     }
     fn buffer(&self) -> BytesMut {

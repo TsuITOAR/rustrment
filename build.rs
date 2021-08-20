@@ -44,10 +44,13 @@ fn main() {
     }
     std::fs::write(
         std::path::Path::new(std::env::var("OUT_DIR").unwrap().as_str()).join(OUTPUT_FILE),
-        fastxdr::Generator::default()
-            .with_derive("#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]")
-            .generate(buf)
-            .expect("error parsing xdr"),
+        format!(
+            "pub {}",
+            fastxdr::Generator::default()
+                .with_derive("#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]")
+                .generate(buf)
+                .expect("error parsing xdr")
+        ),
     )
     .unwrap();
 }

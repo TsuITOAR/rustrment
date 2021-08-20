@@ -12,7 +12,7 @@ use rustrument::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper::<std::net::IpAddr>("192.168.31.156".parse()?)?;
+    test_port_mapper::<std::net::IpAddr>("192.168.3.96".parse()?)?;
     Ok(())
 }
 fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Error>> {
@@ -23,9 +23,9 @@ fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Er
         Procedure::GetPort,
         to_bytes(&xdr::mapping {
             port: 0,
-            prog: 100000,
+            prog: 0x0607AF,
             prot: xdr::IPPROTO_TCP,
-            vers: 2,
+            vers: 1,
         })?,
         SocketAddr::new(addr.into(), PORT),
     )?)?;

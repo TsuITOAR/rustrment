@@ -1,5 +1,5 @@
 pub mod port_mapper;
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use onc_rpc::{auth::AuthFlavor, CallBody, MessageType, ReplyBody, RpcMessage};
 use std::{
     convert::TryFrom,
@@ -140,6 +140,7 @@ pub trait OncRpc {
     }
 }
 
+const UDP_BUFFER_LEN: usize = 256;
 pub trait OncRpcBroadcast {
     const PROGRAM: u32;
     const VERSION: u32;
@@ -152,46 +153,24 @@ pub trait OncRpcBroadcast {
     }
 
     fn recv_from(&mut self) -> Result<(RpcMessage<Bytes, Bytes>, SocketAddr)> {
+        let mut buf = self.buffer();
+        buf.reserve(UDP_BUFFER_LEN + HEAD_LEN);
+        buf.put_slice(&mut [0_u8; HEAD_LEN][..]);
         let mut buf_cursor = MyCursor::new(self.buffer());
-        buf_cursor.reserve(HEAD_LEN);
+        buf_cursor.advance(HEAD_LEN);
+        buf_cursor.reserve(UDP_BUFFER_LEN);
         let (bytes, addr) = {
             //UDP don't fragment
             let (num_read, addr) = self.raw_recv_from(buf_cursor.as_mut())?;
-            buf_cursor.advance(num_read);
-            let expected_len = match onc_rpc::expected_message_len(buf_cursor.as_ref()) {
-                Ok(len) => len as usize,
-                Err(e) => return Err(Error::new(ErrorKind::InvalidData, e)),
-            };
-            if expected_len > buf_cursor.filled {
-                let current_pos = buf_cursor.filled;
-                buf_cursor.reserve(expected_len - current_pos);
-
-                let mut buf = &mut buf_cursor.as_mut()[..expected_len - current_pos];
-                // The buffer does not contain a full message, read more data
-                while !buf.is_empty() {
-                    match self.raw_recv_from(buf) {
-                        Ok((0, a)) if a == addr => break,
-                        Ok((n, a)) if a == addr => {
-                            let tmp = buf;
-                            buf = &mut tmp[n..];
-                        }
-                        Ok(_) => {
-                            unimplemented!()
-                        }
-                        Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-                        Err(e) => return Err(e),
-                    }
-                }
-                if !buf.is_empty() {
-                    return Err(Error::new(
-                        ErrorKind::UnexpectedEof,
-                        "failed to fill whole buffer",
-                    ));
-                }
-            }
             let mut buf = buf_cursor.into_inner();
+            let head: [u8; HEAD_LEN] = (num_read as u32).to_be_bytes();
+            debug_assert!((num_read as u32) < (u32::MAX >> 1));
+            for i in 0..HEAD_LEN {
+                buf[i] = head[i];
+            }
+            buf[0] |= 0b10000000;
             // Split the buffer into a single message
-            let msg_bytes = buf.split_to(expected_len as usize);
+            let msg_bytes = buf.split_to(num_read + HEAD_LEN as usize);
             (msg_bytes.freeze(), addr)
         };
         Ok((parse_bytes(bytes)?, addr))
@@ -202,6 +181,7 @@ pub trait OncRpcBroadcast {
         addr: A,
     ) -> Result<()> {
         let buf = message.serialise()?;
+        let buf = &buf[4..];
         if !buf.is_empty() {
             match self.raw_send_to(&buf, addr) {
                 Ok(0) => {

@@ -41,6 +41,9 @@ impl PortMapper<UdpSocket> {
             buffer: BytesMut::new(),
         })
     }
+    pub fn connect<A: Into<IpAddr>>(&mut self, addr: A) -> Result<()> {
+        self.io.connect(SocketAddr::new(addr.into(), PORT))
+    }
 }
 
 impl OncRpc for PortMapper<TcpStream> {

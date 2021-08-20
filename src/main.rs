@@ -2,6 +2,7 @@
 use std::{
     error::Error,
     io::{BufRead, Read, Write},
+    net::SocketAddr,
 };
 
 use rustrument::{
@@ -17,8 +18,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Error>> {
     use rustrument::protocols::onc_rpc::{port_mapper::*, *};
     use serde_xdr::{from_bytes, to_bytes};
-    let mut handler = PortMapper::new_tcp(addr)?;
-    let reply: u32 = from_bytes(handler.call_anonymously(
+    let mut handler = PortMapper::new_udp(1000)?;
+    let reply: u32 = from_bytes(handler.call_to_anonymously(
         Procedure::GetPort,
         to_bytes(&xdr::mapping {
             port: 0,
@@ -26,6 +27,7 @@ fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Er
             prot: xdr::IPPROTO_TCP,
             vers: 2,
         })?,
+        SocketAddr::new(addr.into(), PORT),
     )?)?;
     println!("got reply: {}", reply);
     Ok(())

@@ -39,36 +39,26 @@ pub trait OncRpc {
     }
 
     fn read(&mut self) -> Result<RpcMessage<Bytes, Bytes>> {
-        let mut buf = self.buffer().clone();
-        if buf.len() < HEAD_LEN {
-            buf.resize(HEAD_LEN, 0);
-        };
+        let mut buf_cursor = MyCursor::new(self.buffer());
+        buf_cursor.reserve(HEAD_LEN);
         let bytes = {
-            let mut buf_cursor = std::io::Cursor::new(buf);
             let expected_len = loop {
-                let current_pos = buf_cursor.position() as usize;
-                let num_read = self.raw_read(&mut buf_cursor.get_mut()[current_pos..])? as u64;
-                buf_cursor.set_position(buf_cursor.position() + num_read);
-                match onc_rpc::expected_message_len(
-                    &buf_cursor.get_ref()[..buf_cursor.position() as usize],
-                ) {
+                let num_read = self.raw_read(buf_cursor.as_mut())?;
+                buf_cursor.advance(num_read);
+                match onc_rpc::expected_message_len(buf_cursor.as_ref()) {
                     Ok(len) => break len as usize,
                     Err(onc_rpc::Error::IncompleteHeader) => continue,
                     Err(e) => return Err(Error::new(ErrorKind::InvalidData, e)),
                 };
             };
-            let current_pos = buf_cursor.position() as usize;
-            buf = buf_cursor.into_inner();
-            if expected_len > current_pos {
-                let temp = buf.len();
-                if expected_len > temp {
-                    buf.resize(expected_len, 0);
-                }
+            if expected_len > buf_cursor.filled {
+                let current_len = buf_cursor.filled;
+                buf_cursor.reserve(expected_len - current_len);
 
                 // The buffer does not contain a full message, read more data
-                raw_read_exact(self, &mut buf[current_pos..expected_len])?;
+                raw_read_exact(self, &mut buf_cursor.as_mut()[..expected_len - current_len])?;
             }
-
+            let mut buf = buf_cursor.into_inner();
             // Split the buffer into a single message
             let msg_bytes = buf.split_to(expected_len as usize);
             Result::Ok(msg_bytes.freeze())
@@ -99,7 +89,7 @@ pub trait OncRpc {
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone().into()),
+                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone()),
 
                     onc_rpc::AcceptedStatus::ProgramUnavailable => {
                         Err(Error::new(ErrorKind::Other, "program unavailable"))
@@ -157,34 +147,26 @@ pub trait OncRpcBroadcast {
     fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize>;
     fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)>;
     fn buffer(&self) -> BytesMut;
+    fn gen_xid(&mut self) -> u32 {
+        rand::random()
+    }
+
     fn recv_from(&mut self) -> Result<(RpcMessage<Bytes, Bytes>, SocketAddr)> {
-        let mut buf = self.buffer().clone();
-        if buf.len() < HEAD_LEN {
-            buf.resize(HEAD_LEN, 0);
-        };
-
+        let mut buf_cursor = MyCursor::new(self.buffer());
+        buf_cursor.reserve(HEAD_LEN);
         let (bytes, addr) = {
-            let mut buf_cursor = std::io::Cursor::new(buf);
             //UDP don't fragment
-            let current_pos = buf_cursor.position() as usize;
-            let (num_read, addr) =
-                self.raw_recv_from(&mut buf_cursor.get_mut()[current_pos..])? as (usize, _);
-            buf_cursor.set_position(buf_cursor.position() + num_read as u64);
-
-            let expected_len = match onc_rpc::expected_message_len(
-                &buf_cursor.get_ref()[..buf_cursor.position() as usize], /* zero-copy clone */
-            ) {
+            let (num_read, addr) = self.raw_recv_from(buf_cursor.as_mut())?;
+            buf_cursor.advance(num_read);
+            let expected_len = match onc_rpc::expected_message_len(buf_cursor.as_ref()) {
                 Ok(len) => len as usize,
                 Err(e) => return Err(Error::new(ErrorKind::InvalidData, e)),
             };
-            let current_pos = buf_cursor.position() as usize;
-            buf = buf_cursor.into_inner();
-            if expected_len > current_pos {
-                let temp = buf.len();
-                if expected_len > temp {
-                    buf.resize(expected_len, 0);
-                }
-                let mut buf = &mut buf[current_pos..expected_len];
+            if expected_len > buf_cursor.filled {
+                let current_pos = buf_cursor.filled;
+                buf_cursor.reserve(expected_len - current_pos);
+
+                let mut buf = &mut buf_cursor.as_mut()[..expected_len - current_pos];
                 // The buffer does not contain a full message, read more data
                 while !buf.is_empty() {
                     match self.raw_recv_from(buf) {
@@ -207,7 +189,7 @@ pub trait OncRpcBroadcast {
                     ));
                 }
             }
-
+            let mut buf = buf_cursor.into_inner();
             // Split the buffer into a single message
             let msg_bytes = buf.split_to(expected_len as usize);
             (msg_bytes.freeze(), addr)
@@ -243,6 +225,90 @@ pub trait OncRpcBroadcast {
             }
         }
         Ok(())
+    }
+    fn call_to<P: Into<u32>, T: AsRef<[u8]>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+        &mut self,
+        procedure: P,
+        auth_credentials: AuthFlavor<T>,
+        auth_verifier: AuthFlavor<T>,
+        content: C,
+        addr: A,
+    ) -> Result<Bytes> {
+        let xid = self.gen_xid();
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .expect("invalid socket address");
+        let call_body = CallBody::new(
+            Self::PROGRAM,
+            Self::VERSION,
+            procedure.into(),
+            auth_credentials,
+            auth_verifier,
+            content.as_ref(),
+        );
+        self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
+        let reply = match self.recv_from()? {
+            (r, f) if f == addr => r,
+            //another message got when waiting for reply
+            _ => unimplemented!(),
+        };
+        if reply.xid() == xid {
+            match reply.reply_body().ok_or(Error::new(
+                ErrorKind::InvalidInput,
+                "expected reply, found call",
+            ))? {
+                ReplyBody::Accepted(a) => match a.status() {
+                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone()),
+
+                    onc_rpc::AcceptedStatus::ProgramUnavailable => {
+                        Err(Error::new(ErrorKind::Other, "program unavailable"))
+                    }
+                    onc_rpc::AcceptedStatus::ProgramMismatch { low, high } => Err(Error::new(
+                        ErrorKind::Other,
+                        format!("program mismatch, supported version {} - {}", low, high),
+                    )),
+                    onc_rpc::AcceptedStatus::ProcedureUnavailable => {
+                        Err(Error::new(ErrorKind::Other, "procedure unavailable"))
+                    }
+                    onc_rpc::AcceptedStatus::GarbageArgs => {
+                        Err(Error::new(ErrorKind::Other, "garbage args"))
+                    }
+                    onc_rpc::AcceptedStatus::SystemError => {
+                        Err(Error::new(ErrorKind::Other, "system error"))
+                    }
+                },
+                ReplyBody::Denied(d) => match d {
+                    onc_rpc::RejectedReply::RpcVersionMismatch { low, high } => Err(Error::new(
+                        ErrorKind::Other,
+                        format!("rpc version mismatch, supported version {} - {}", low, high),
+                    )),
+                    onc_rpc::RejectedReply::AuthError(a) => Err(Error::new(
+                        ErrorKind::PermissionDenied,
+                        format!("authentication failed, {:?}", a),
+                    )),
+                },
+            }
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("unmatched xid, expected {}, got {}", xid, reply.xid(),),
+            ))
+        }
+    }
+    fn call_to_anonymously<P: Into<u32>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+        &mut self,
+        procedure: P,
+        content: C,
+        addr: A,
+    ) -> Result<Bytes> {
+        self.call_to::<P, &[u8], C, A>(
+            procedure,
+            AuthFlavor::AuthNone(None),
+            AuthFlavor::AuthNone(None),
+            content,
+            addr,
+        )
     }
 }
 
@@ -283,5 +349,47 @@ fn raw_read_exact<S: OncRpc + ?Sized>(s: &mut S, mut buf: &mut [u8]) -> Result<(
         ))
     } else {
         Ok(())
+    }
+}
+
+struct MyCursor<T: AsRef<[u8]> + AsMut<[u8]>> {
+    inner: T,
+    filled: usize,
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> MyCursor<T> {
+    fn new(inner: T) -> Self {
+        Self { inner, filled: 0 }
+    }
+    fn advance(&mut self, step: usize) -> &mut Self {
+        self.filled += step;
+        self
+    }
+    fn into_inner(self) -> T {
+        self.inner
+    }
+    fn capacity(&self) -> usize {
+        self.inner.as_ref().len()
+    }
+}
+impl MyCursor<BytesMut> {
+    fn reserve(&mut self, additional: usize) {
+        if self.filled + additional > self.capacity() {
+            self.inner.resize(self.filled + additional, 0);
+        }
+    }
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]> for MyCursor<T> {
+    fn as_ref(&self) -> &[u8] {
+        debug_assert!(self.inner.as_ref().len() >= self.filled);
+        &self.inner.as_ref()[..self.filled]
+    }
+}
+
+impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for MyCursor<T> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        debug_assert!(self.inner.as_ref().len() >= self.filled);
+        &mut self.inner.as_mut()[self.filled..]
     }
 }

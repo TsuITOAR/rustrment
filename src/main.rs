@@ -2,7 +2,7 @@
 use std::{
     error::Error,
     io::{BufRead, Read, Write},
-    net::SocketAddr,
+    net::{TcpStream, ToSocketAddrs, UdpSocket},
 };
 
 use rustrument::{
@@ -12,31 +12,76 @@ use rustrument::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper::<std::net::IpAddr>("192.168.3.255".parse()?)?;
+    test_port_mapper("192.168.31.29:11111", "192.168.31.156:111")?;
     Ok(())
 }
-fn test_port_mapper<A: Into<std::net::IpAddr>>(addr: A) -> Result<(), Box<dyn Error>> {
+fn test_port_mapper<A: ToSocketAddrs + Clone, B: ToSocketAddrs + Clone>(
+    local_addr: A,
+    remote_addr: B,
+) -> Result<(), Box<dyn Error>> {
     use rustrument::protocols::onc_rpc::{port_mapper::*, *};
-    use serde_xdr::{from_bytes, to_bytes};
     use std::time::Duration;
-    let mut handler = PortMapper::new_udp(1000, Duration::from_secs(2))?;
-    let mut stream = handler.broadcast_anonymously(
-        Procedure::GetPort,
-        to_bytes(&xdr::mapping {
-            port: 0,
-            prog: 0x0607AF,
-            prot: xdr::IPPROTO_TCP,
-            vers: 1,
-        })?,
-        SocketAddr::new(addr.into(), PORT),
-    )?;
-    loop {
-        let reply = stream.next().expect("stream never returns None")?;
-        println!(
-            "got reply {:0>5} from {:>}",
-            from_bytes::<_, u32>(reply.0)?,
-            reply.1.to_string()
+    let dur = Duration::from_secs(1);
+
+    //tcp test
+    let prog = PortMapper::<TcpStream>::PROGRAM;
+    let vers = PortMapper::<TcpStream>::VERSION;
+    {
+        let mut tcp_handler = PortMapper::new_tcp(remote_addr.clone(), dur)?;
+        assert_eq!(tcp_handler.tcp_port(prog, vers)?, port_mapper::PORT as u32);
+        assert_eq!(tcp_handler.udp_port(prog, vers)?, port_mapper::PORT as u32);
+    }
+
+    //udp test
+    let prog = PortMapper::<UdpSocket>::PROGRAM;
+    let vers = PortMapper::<UdpSocket>::VERSION;
+    {
+        let mut udp_handler = PortMapper::new_udp(local_addr, dur)?;
+        assert_eq!(
+            udp_handler.tcp_port(prog, vers, remote_addr.clone())?,
+            port_mapper::PORT as u32
         );
+        assert_eq!(
+            udp_handler.udp_port(prog, vers, remote_addr.clone())?,
+            port_mapper::PORT as u32
+        );
+        use std::io::ErrorKind;
+        {
+            let mut port_stream = udp_handler.collet_tcp_port(prog, vers, "224.0.0.1:111")?;
+            loop {
+                match port_stream.next() {
+                    Some(s) => match s {
+                        Ok((p, a)) => println!("got reply {:0>5} from {}", p, a.to_string()),
+                        Err(e) => {
+                            if e.kind() == ErrorKind::TimedOut {
+                                break;
+                            } else {
+                                return Err(e.into());
+                            }
+                        }
+                    },
+                    None => unreachable!(),
+                }
+            }
+        }
+        {
+            let mut port_stream = udp_handler.collet_udp_port(prog, vers, "224.0.0.1:111")?;
+            loop {
+                match port_stream.next() {
+                    Some(s) => match s {
+                        Ok((p, a)) => println!("got reply {:0>5} from {}", p, a.to_string()),
+                        Err(e) => {
+                            if e.kind() == ErrorKind::TimedOut {
+                                break;
+                            } else {
+                                return Err(e.into());
+                            }
+                        }
+                    },
+                    None => unreachable!(),
+                }
+            }
+        }
     }
     Ok(())
 }

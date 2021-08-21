@@ -148,6 +148,7 @@ pub trait OncRpcBroadcast {
     fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize>;
     fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)>;
     fn buffer(&self) -> BytesMut;
+    fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<()>;
     fn gen_xid(&mut self) -> u32 {
         rand::random()
     }
@@ -181,7 +182,7 @@ pub trait OncRpcBroadcast {
         addr: A,
     ) -> Result<()> {
         let buf = message.serialise()?;
-        let buf = &buf[4..];
+        let buf = &buf[HEAD_LEN..];
         if !buf.is_empty() {
             match self.raw_send_to(&buf, addr) {
                 Ok(0) => {
@@ -227,6 +228,7 @@ pub trait OncRpcBroadcast {
             auth_verifier,
             content.as_ref(),
         );
+        self.listen(addr)?;
         self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
         let reply = match self.recv_from()? {
             (r, f)
@@ -239,8 +241,8 @@ pub trait OncRpcBroadcast {
             {
                 r
             }
-            //another message got when waiting for reply
-            _ => unimplemented!(),
+            //another message got when waiting for reply, since listen to addr, this is unreachable
+            _ => unreachable!(),
         };
         if reply.xid() == xid {
             match reply.reply_body().ok_or(Error::new(

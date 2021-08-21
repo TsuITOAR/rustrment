@@ -2,7 +2,7 @@ use super::{OncRpc, OncRpcBroadcast};
 use bytes::BytesMut;
 use std::{
     io::{Read, Result, Write},
-    net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
+    net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
     time::Duration,
 };
 

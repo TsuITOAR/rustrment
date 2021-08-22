@@ -191,6 +191,9 @@ impl OncRpcBroadcast for PortMapper<UdpSocket> {
     fn raw_send_to<A: std::net::ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize> {
         self.io.send_to(buf, addr)
     }
+    fn raw_recv(&self, buf: &mut [u8]) -> Result<usize> {
+        self.io.recv(buf)
+    }
 }
 
 pub enum Procedure {

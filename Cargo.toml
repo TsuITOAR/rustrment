@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 serial = "*"
-num_enum = "*"
 thiserror = "*"
 bytes = "*"
 onc-rpc = "*"

@@ -2,7 +2,7 @@
 use std::{
     error::Error,
     io::{BufRead, Read, Write},
-    net::{TcpStream, ToSocketAddrs, UdpSocket},
+    net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
 };
 
 use rustrument::{
@@ -10,19 +10,33 @@ use rustrument::{
     protocols::{Protocol, Tcp},
     DefaultConfig, PiezoController,
 };
+fn get_local_ip() -> Option<IpAddr> {
+    let socket = match UdpSocket::bind("0.0.0.0:0") {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
 
+    match socket.connect("8.8.8.8:80") {
+        Ok(()) => (),
+        Err(_) => return None,
+    };
+
+    match socket.local_addr() {
+        Ok(addr) => return Some(addr.ip()),
+        Err(_) => return None,
+    };
+}
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper("192.168.31.29:11111", "192.168.31.156:111")?;
+    test_port_mapper("192.168.31.156:111")?;
     Ok(())
 }
-fn test_port_mapper<A: ToSocketAddrs + Clone, B: ToSocketAddrs + Clone>(
-    local_addr: A,
-    remote_addr: B,
-) -> Result<(), Box<dyn Error>> {
+fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
     use rustrument::protocols::onc_rpc::{port_mapper::*, *};
     use std::time::Duration;
     let dur = Duration::from_secs(1);
-
+    let local_ip = get_local_ip().ok_or("error getting local ip address")?;
+    let port = 12902;
+    let local_addr = SocketAddr::new(local_ip, port);
     //tcp test
     let prog = PortMapper::<TcpStream>::PROGRAM;
     let vers = PortMapper::<TcpStream>::VERSION;

@@ -1,8 +1,10 @@
 pub mod port_mapper;
+pub mod vxi11;
 use bytes::{BufMut, Bytes, BytesMut};
 use onc_rpc::{auth::AuthFlavor, CallBody, MessageType, ReplyBody, RpcMessage};
+use serde::{Deserialize, Serialize};
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     io::{Error, ErrorKind, Result},
     net::{SocketAddr, ToSocketAddrs},
 };
@@ -65,21 +67,29 @@ pub trait OncRpc {
         }?;
         Ok(parse_bytes(bytes)?)
     }
-    fn call<P: Into<u32>, T: AsRef<[u8]>, C: AsRef<[u8]>>(
+    fn call<P, T, C, R>(
         &mut self,
         procedure: P,
         auth_credentials: AuthFlavor<T>,
         auth_verifier: AuthFlavor<T>,
-        content: C,
-    ) -> Result<Bytes> {
+        content: &C,
+    ) -> Result<R>
+    where
+        P: Into<u32>,
+        T: AsRef<[u8]>,
+        C: Serialize,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
         let xid = self.gen_xid();
+        let content = serde_xdr::to_bytes(content).map_err(|x| Error::new(ErrorKind::Other, x))?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
             procedure.into(),
             auth_credentials,
             auth_verifier,
-            content.as_ref(),
+            &content[..],
         );
         self.send(RpcMessage::new(xid, MessageType::Call(call_body)))?;
         let reply = self.read()?;
@@ -89,7 +99,17 @@ pub trait OncRpc {
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone()),
+                    onc_rpc::AcceptedStatus::Success(p) => {
+                        (p.clone()
+                            .try_into()
+                            .map_err(|err: <R as TryFrom<Bytes>>::Error| {
+                                Error::new(
+                                    ErrorKind::Other,
+                                    format!("err parsing data: {}", err.to_string()),
+                                )
+                            }))
+                        .map_err(|e| Error::new(ErrorKind::Other, e))
+                    }
 
                     onc_rpc::AcceptedStatus::ProgramUnavailable => {
                         Err(Error::new(ErrorKind::Other, "program unavailable"))
@@ -126,12 +146,14 @@ pub trait OncRpc {
             ))
         }
     }
-    fn call_anonymously<P: Into<u32>, C: AsRef<[u8]>>(
-        &mut self,
-        procedure: P,
-        content: C,
-    ) -> Result<Bytes> {
-        self.call::<P, &[u8], C>(
+    fn call_anonymously<P, C, R>(&mut self, procedure: P, content: &C) -> Result<R>
+    where
+        P: Into<u32>,
+        C: Serialize,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
+        self.call::<P, &[u8], C, R>(
             procedure,
             AuthFlavor::AuthNone(None),
             AuthFlavor::AuthNone(None),
@@ -207,26 +229,35 @@ pub trait OncRpcBroadcast {
         }
         Ok(())
     }
-    fn call_to<P: Into<u32>, T: AsRef<[u8]>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+    fn call_to<P, T, C, A, R>(
         &mut self,
         procedure: P,
         auth_credentials: AuthFlavor<T>,
         auth_verifier: AuthFlavor<T>,
-        content: C,
+        content: &C,
         addr: A,
-    ) -> Result<Bytes> {
+    ) -> Result<R>
+    where
+        P: Into<u32>,
+        T: AsRef<[u8]>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
         let xid = self.gen_xid();
         let addr = addr
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
+        let content = serde_xdr::to_bytes(content).map_err(|x| Error::new(ErrorKind::Other, x))?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
             procedure.into(),
             auth_credentials,
             auth_verifier,
-            content.as_ref(),
+            &content[..],
         );
         self.listen(addr)?;
         self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
@@ -250,7 +281,16 @@ pub trait OncRpcBroadcast {
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone()),
+                    onc_rpc::AcceptedStatus::Success(p) => {
+                        p.clone()
+                            .try_into()
+                            .map_err(|err: <R as TryFrom<Bytes>>::Error| {
+                                Error::new(
+                                    ErrorKind::Other,
+                                    format!("err parsing data: {}", err.to_string()),
+                                )
+                            })
+                    }
 
                     onc_rpc::AcceptedStatus::ProgramUnavailable => {
                         Err(Error::new(ErrorKind::Other, "program unavailable"))
@@ -287,13 +327,15 @@ pub trait OncRpcBroadcast {
             ))
         }
     }
-    fn call_to_anonymously<P: Into<u32>, C: AsRef<[u8]>, A: ToSocketAddrs>(
-        &mut self,
-        procedure: P,
-        content: C,
-        addr: A,
-    ) -> Result<Bytes> {
-        self.call_to::<P, &[u8], C, A>(
+    fn call_to_anonymously<P, C, A, R>(&mut self, procedure: P, content: &C, addr: A) -> Result<R>
+    where
+        P: Into<u32>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
+        self.call_to::<P, &[u8], C, A, R>(
             procedure,
             AuthFlavor::AuthNone(None),
             AuthFlavor::AuthNone(None),
@@ -301,41 +343,55 @@ pub trait OncRpcBroadcast {
             addr,
         )
     }
-    fn broadcast<'a, P: Into<u32>, T: AsRef<[u8]>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+    fn broadcast<'a, P, T, C, A, R>(
         &'a mut self,
         procedure: P,
         auth_credentials: AuthFlavor<T>,
         auth_verifier: AuthFlavor<T>,
-        content: C,
+        content: &C,
         addr: A,
-    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(Bytes, SocketAddr)>> + 'a>>>
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
+    where
+        P: Into<u32>,
+        T: AsRef<[u8]>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
     {
         let xid = self.gen_xid();
         let addr = addr
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
+        let content = serde_xdr::to_bytes(content).map_err(|x| Error::new(ErrorKind::Other, x))?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
             procedure.into(),
             auth_credentials,
             auth_verifier,
-            content.as_ref(),
+            &content[..],
         );
         self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
         Ok(std::iter::from_fn(Box::new(move || {
             Some(stream_receive(self, xid))
         })))
     }
-    fn broadcast_anonymously<'a, P: Into<u32>, C: AsRef<[u8]>, A: ToSocketAddrs>(
+    fn broadcast_anonymously<'a, P, C, A, R>(
         &'a mut self,
         procedure: P,
-        content: C,
+        content: &C,
         addr: A,
-    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(Bytes, SocketAddr)>> + 'a>>>
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
+    where
+        P: Into<u32>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
     {
-        self.broadcast::<P, &[u8], C, A>(
+        self.broadcast::<P, &[u8], C, A, R>(
             procedure,
             AuthFlavor::AuthNone(None),
             AuthFlavor::AuthNone(None),
@@ -427,7 +483,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for MyCursor<T> {
     }
 }
 
-fn stream_receive<S: OncRpcBroadcast + ?Sized>(s: &mut S, xid: u32) -> Result<(Bytes, SocketAddr)> {
+fn stream_receive<S: OncRpcBroadcast + ?Sized, R>(s: &mut S, xid: u32) -> Result<(R, SocketAddr)>
+where
+    S: OncRpcBroadcast,
+    R: TryFrom<Bytes>,
+    <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+{
     {
         let (reply, addr) = match s.recv_from()? {
             (r, addr) => (r, addr),
@@ -438,7 +499,17 @@ fn stream_receive<S: OncRpcBroadcast + ?Sized>(s: &mut S, xid: u32) -> Result<(B
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok((p.clone(), addr)),
+                    onc_rpc::AcceptedStatus::Success(p) => Ok((
+                        p.clone()
+                            .try_into()
+                            .map_err(|err: <R as TryFrom<Bytes>>::Error| {
+                                Error::new(
+                                    ErrorKind::Other,
+                                    format!("err parsing data: {}", err.to_string()),
+                                )
+                            })?,
+                        addr,
+                    )),
 
                     onc_rpc::AcceptedStatus::ProgramUnavailable => {
                         Err(Error::new(ErrorKind::Other, "program unavailable"))

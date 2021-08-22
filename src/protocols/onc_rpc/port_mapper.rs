@@ -1,5 +1,6 @@
+use super::xdr::*;
 use super::{OncRpc, OncRpcBroadcast};
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use std::{
     io::{Read, Result, Write},
     net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
@@ -43,22 +44,19 @@ impl PortMapper<TcpStream> {
         })
     }
     pub fn get_port(&mut self, prog: u32, vers: u32, ip_pro: IpProtocol) -> Result<u32> {
-        Ok(serde_xdr::from_bytes(
-            self.call_anonymously(
-                Procedure::GetPort,
-                serde_xdr::to_bytes(&super::xdr::mapping {
-                    port: 0,
-                    prog,
-                    prot: match ip_pro {
-                        IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
-                        IpProtocol::Udp => super::xdr::IPPROTO_UDP,
-                    },
-                    vers,
-                })
-                .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?,
-            )?,
-        )
-        .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?)
+        let mut b: bytes::Bytes = self.call_anonymously(
+            Procedure::GetPort,
+            &mapping {
+                port: 0,
+                prog,
+                prot: match ip_pro {
+                    IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
+                    IpProtocol::Udp => IPPROTO_UDP,
+                },
+                vers,
+            },
+        )?;
+        Ok(b.get_u32())
     }
     pub fn tcp_port(&mut self, prog: u32, vers: u32) -> Result<u32> {
         self.get_port(prog, vers, IpProtocol::Tcp)
@@ -89,23 +87,20 @@ impl PortMapper<UdpSocket> {
         ip_pro: IpProtocol,
         addr: A,
     ) -> Result<u32> {
-        Ok(serde_xdr::from_bytes(
-            self.call_to_anonymously(
-                Procedure::GetPort,
-                serde_xdr::to_bytes(&super::xdr::mapping {
-                    port: 0,
-                    prog,
-                    prot: match ip_pro {
-                        IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
-                        IpProtocol::Udp => super::xdr::IPPROTO_UDP,
-                    },
-                    vers,
-                })
-                .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?,
-                addr,
-            )?,
-        )
-        .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?)
+        let mut b: bytes::Bytes = self.call_to_anonymously(
+            Procedure::GetPort,
+            &mapping {
+                port: 0,
+                prog,
+                prot: match ip_pro {
+                    IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
+                    IpProtocol::Udp => IPPROTO_UDP,
+                },
+                vers,
+            },
+            addr,
+        )?;
+        Ok(b.get_u32())
     }
     pub fn tcp_port<A: ToSocketAddrs>(&mut self, prog: u32, vers: u32, addr: A) -> Result<u32> {
         self.get_port(prog, vers, IpProtocol::Tcp, addr)
@@ -122,28 +117,29 @@ impl PortMapper<UdpSocket> {
     ) -> Result<impl Iterator<Item = Result<(u32, SocketAddr)>> + 'a> {
         let stream = self.broadcast_anonymously(
             Procedure::GetPort,
-            serde_xdr::to_bytes(&super::xdr::mapping {
+            &mapping {
                 port: 0,
                 prog,
                 prot: match ip_pro {
-                    IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
-                    IpProtocol::Udp => super::xdr::IPPROTO_UDP,
+                    IpProtocol::Tcp => IPPROTO_TCP,
+                    IpProtocol::Udp => IPPROTO_UDP,
                 },
                 vers,
-            })
-            .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?,
+            },
             addr,
         )?;
-        Ok(stream.map(|x| -> Result<(u32, SocketAddr)> {
-            match x {
-                Ok((b, a)) => Ok((
-                    serde_xdr::from_bytes::<_, u32>(b)
-                        .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?,
-                    a,
-                )),
-                Err(e) => Err(e),
-            }
-        }))
+        Ok(stream.map(
+            |x: Result<(bytes::Bytes, SocketAddr)>| -> Result<(u32, SocketAddr)> {
+                match x {
+                    Ok((b, a)) => Ok((
+                        serde_xdr::from_bytes::<_, u32>(b)
+                            .map_err(|x| std::io::Error::new(std::io::ErrorKind::Other, x))?,
+                        a,
+                    )),
+                    Err(e) => Err(e),
+                }
+            },
+        ))
     }
     pub fn collet_tcp_port<'a, A: ToSocketAddrs + 'a>(
         &'a mut self,

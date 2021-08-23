@@ -50,7 +50,7 @@ impl PortMapper<TcpStream> {
                 port: 0,
                 prog,
                 prot: match ip_pro {
-                    IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
+                    IpProtocol::Tcp => IPPROTO_TCP,
                     IpProtocol::Udp => IPPROTO_UDP,
                 },
                 vers,
@@ -93,7 +93,7 @@ impl PortMapper<UdpSocket> {
                 port: 0,
                 prog,
                 prot: match ip_pro {
-                    IpProtocol::Tcp => super::xdr::IPPROTO_TCP,
+                    IpProtocol::Tcp => IPPROTO_TCP,
                     IpProtocol::Udp => IPPROTO_UDP,
                 },
                 vers,

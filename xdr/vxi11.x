@@ -108,6 +108,11 @@ struct Device_SrqParms {
 
 
 /*
+program DEVICE_ASYNC{
+    version DEVICE_ASYNC_VERSION {
+    Device_Error device_abort (Device_Link) = 1;
+    } = 1;
+} = 0x0607B0;
 
 program DEVICE_CORE {
     version DEVICE_CORE_VERSION {

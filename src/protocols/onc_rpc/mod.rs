@@ -169,42 +169,18 @@ pub trait OncRpcBroadcast {
 
     fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize>;
     fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)>;
-    fn raw_recv(&self, buf: &mut [u8]) -> Result<usize>;
     fn buffer(&self) -> BytesMut;
     fn listen<A: ToSocketAddrs>(&mut self, addr: A) -> Result<()>;
     fn gen_xid(&mut self) -> u32 {
         rand::random()
     }
-    fn recv(&mut self) -> Result<RpcMessage<Bytes, Bytes>> {
-        let mut buf = self.buffer();
-        buf.reserve(UDP_BUFFER_LEN + HEAD_LEN);
-        buf.put_slice(&mut [0_u8; HEAD_LEN][..]);
-        let mut buf_cursor = MyCursor::new(self.buffer());
-        buf_cursor.advance(HEAD_LEN);
-        buf_cursor.reserve(UDP_BUFFER_LEN);
-        let bytes = {
-            //UDP don't fragment
-            let num_read = self.raw_recv(buf_cursor.as_mut())?;
-            let mut buf = buf_cursor.into_inner();
-            let head: [u8; HEAD_LEN] = (num_read as u32).to_be_bytes();
-            debug_assert!((num_read as u32) < (u32::MAX >> 1));
-            for i in 0..HEAD_LEN {
-                buf[i] = head[i];
-            }
-            buf[0] |= 0b10000000;
-            // Split the buffer into a single message
-            let msg_bytes = buf.split_to(num_read + HEAD_LEN as usize);
-            msg_bytes.freeze()
-        };
-        Ok(parse_bytes(bytes)?)
-    }
     fn recv_from(&mut self) -> Result<(RpcMessage<Bytes, Bytes>, SocketAddr)> {
         let mut buf = self.buffer();
-        buf.reserve(UDP_BUFFER_LEN + HEAD_LEN);
+        buf.reserve(UDP_BUFFER_LEN + HEAD_LEN); //reserve uninitialized length
         buf.put_slice(&mut [0_u8; HEAD_LEN][..]);
         let mut buf_cursor = MyCursor::new(self.buffer());
         buf_cursor.advance(HEAD_LEN);
-        buf_cursor.reserve(UDP_BUFFER_LEN);
+        buf_cursor.reserve(UDP_BUFFER_LEN); //reserve unfilled but initialized length
         let (bytes, addr) = {
             //UDP don't fragment
             let (num_read, addr) = self.raw_recv_from(buf_cursor.as_mut())?;
@@ -284,7 +260,10 @@ pub trait OncRpcBroadcast {
         );
         self.listen(addr)?;
         self.send_to(RpcMessage::new(xid, MessageType::Call(call_body)), addr)?;
-        let reply = self.recv()?;
+        let reply = match self.recv_from()? {
+            (r, a) if a == addr => r,
+            _ => unimplemented!(), //we've bind to the addrs
+        };
         if reply.xid() == xid {
             match reply.reply_body().ok_or(Error::new(
                 ErrorKind::InvalidInput,

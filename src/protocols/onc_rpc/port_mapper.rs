@@ -108,6 +108,7 @@ impl PortMapper<UdpSocket> {
     pub fn udp_port<A: ToSocketAddrs>(&mut self, prog: u32, vers: u32, addr: A) -> Result<u32> {
         self.get_port(prog, vers, IpProtocol::Udp, addr)
     }
+    //if listening to a port, broadcast will filter other incoming message
     pub fn collect_port<'a, A: ToSocketAddrs>(
         &'a mut self,
         prog: u32,
@@ -190,9 +191,6 @@ impl OncRpcBroadcast for PortMapper<UdpSocket> {
     }
     fn raw_send_to<A: std::net::ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize> {
         self.io.send_to(buf, addr)
-    }
-    fn raw_recv(&self, buf: &mut [u8]) -> Result<usize> {
-        self.io.recv(buf)
     }
 }
 

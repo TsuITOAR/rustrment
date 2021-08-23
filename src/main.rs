@@ -27,38 +27,27 @@ fn get_local_ip() -> Option<IpAddr> {
     };
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper("192.168.31.156:111")?;
+    test_port_mapper("192.168.3.23:111")?;
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
-    use rustrument::protocols::onc_rpc::{port_mapper::*, *};
+    use rustrument::protocols::onc_rpc::port_mapper::*;
     use std::time::Duration;
     let dur = Duration::from_secs(1);
     let local_ip = get_local_ip().ok_or("error getting local ip address")?;
     let port = 12902;
     let local_addr = SocketAddr::new(local_ip, port);
     //tcp test
-    let prog = PortMapper::<TcpStream>::PROGRAM;
-    let vers = PortMapper::<TcpStream>::VERSION;
+    let prog = 0x0607AF;
+    let vers = 1;
     {
         let mut tcp_handler = PortMapper::new_tcp(remote_addr.clone(), dur)?;
-        assert_eq!(tcp_handler.tcp_port(prog, vers)?, port_mapper::PORT as u32);
-        assert_eq!(tcp_handler.udp_port(prog, vers)?, port_mapper::PORT as u32);
+        println!("{}", tcp_handler.tcp_port(prog, vers)?);
+        println!("{}", tcp_handler.udp_port(prog, vers)?);
     }
 
-    //udp test
-    let prog = PortMapper::<UdpSocket>::PROGRAM;
-    let vers = PortMapper::<UdpSocket>::VERSION;
     {
         let mut udp_handler = PortMapper::new_udp(local_addr, dur)?;
-        assert_eq!(
-            udp_handler.tcp_port(prog, vers, remote_addr.clone())?,
-            port_mapper::PORT as u32
-        );
-        assert_eq!(
-            udp_handler.udp_port(prog, vers, remote_addr.clone())?,
-            port_mapper::PORT as u32
-        );
         use std::io::ErrorKind;
         {
             let mut port_stream = udp_handler.collet_tcp_port(prog, vers, "224.0.0.1:111")?;
@@ -96,6 +85,8 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
                 }
             }
         }
+        println!("{}", udp_handler.tcp_port(prog, vers, remote_addr.clone())?);
+        println!("{}", udp_handler.udp_port(prog, vers, remote_addr.clone())?);
     }
     Ok(())
 }

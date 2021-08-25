@@ -7,7 +7,7 @@ use std::{
 
 use rustrument::{
     instruments::{infiniium::Infiniium, Messenger},
-    protocols::{Protocol, Tcp},
+    protocols::{onc_rpc::RpcProgram, Protocol, Tcp},
     DefaultConfig, PiezoController,
 };
 fn get_local_ip() -> Option<IpAddr> {
@@ -27,7 +27,7 @@ fn get_local_ip() -> Option<IpAddr> {
     };
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper("192.168.3.23:111")?;
+    test_port_mapper("192.168.31.156:111")?;
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
@@ -38,8 +38,8 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
     let port = 12902;
     let local_addr = SocketAddr::new(local_ip, port);
     //tcp test
-    let prog = 0x0607AF;
-    let vers = 1;
+    let prog = <PortMapper<TcpStream> as RpcProgram>::PROGRAM;
+    let vers = <PortMapper<TcpStream> as RpcProgram>::VERSION;
     {
         let mut tcp_handler = PortMapper::new_tcp(remote_addr.clone(), dur)?;
         println!("{}", tcp_handler.tcp_port(prog, vers)?);
@@ -47,10 +47,16 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
     }
 
     {
-        let mut udp_handler = PortMapper::new_udp(local_addr, dur)?;
+        let mut udp_handler = PortMapper::new_udp(local_addr, remote_addr, dur)?;
+        println!("{}", udp_handler.tcp_port(prog, vers)?);
+        println!("{}", udp_handler.udp_port(prog, vers)?);
+    }
+    
+    {
+        let mut broad_caster = PortMapper::new_broadcaster(local_addr, dur)?;
         use std::io::ErrorKind;
         {
-            let mut port_stream = udp_handler.collet_tcp_port(prog, vers, "224.0.0.1:111")?;
+            let mut port_stream = broad_caster.collet_tcp_port(prog, vers, "224.0.0.1:111")?;
             loop {
                 match port_stream.next() {
                     Some(s) => match s {
@@ -68,7 +74,7 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
             }
         }
         {
-            let mut port_stream = udp_handler.collet_udp_port(prog, vers, "224.0.0.1:111")?;
+            let mut port_stream = broad_caster.collet_udp_port(prog, vers, "224.0.0.1:111")?;
             loop {
                 match port_stream.next() {
                     Some(s) => match s {
@@ -85,8 +91,6 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
                 }
             }
         }
-        println!("{}", udp_handler.tcp_port(prog, vers, remote_addr.clone())?);
-        println!("{}", udp_handler.udp_port(prog, vers, remote_addr.clone())?);
     }
     Ok(())
 }

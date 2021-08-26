@@ -164,7 +164,7 @@ const REQ_SIZE: usize = 512;
 const TERM: char = '\n';
 //https://zone.ni.com/reference/en-XX/help/370131S-01/ni-visa/visaresourcesyntaxandexamples/
 const INTERFACE_NAME: &str = "TCPIP";
-pub struct Vxi11Cilent {
+pub struct Vxi11Client {
     pub client_id: i32,
     pub lock: bool,
     pub lock_timeout: Duration,
@@ -173,7 +173,7 @@ pub struct Vxi11Cilent {
     pub term: char,
 }
 
-impl Vxi11Cilent {
+impl Vxi11Client {
     pub fn new(
         client_id: i32,
         lock: bool,
@@ -192,7 +192,7 @@ impl Vxi11Cilent {
         }
     }
 }
-impl Default for Vxi11Cilent {
+impl Default for Vxi11Client {
     fn default() -> Self {
         Self {
             client_id: 20210826,
@@ -341,7 +341,7 @@ impl std::io::Write for Vxi11 {
         self.mut_core().get_io().flush()
     }
 }
-impl crate::Protocol for Vxi11Cilent {
+impl crate::Protocol for Vxi11Client {
     type Address = IpAddr;
     type Error = std::io::Error;
     type IO = Vxi11;

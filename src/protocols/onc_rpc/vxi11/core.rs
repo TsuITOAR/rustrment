@@ -1,3 +1,14 @@
+use bytes::{Bytes, BytesMut};
+use serde::Serialize;
+use std::{
+    fmt::Debug,
+    io::Result,
+    net::{IpAddr, TcpStream, ToSocketAddrs},
+};
+
+use crate::protocols::onc_rpc::{IpProtocol, Rpc, RpcProgram};
+
+use super::{xdr, ErrorCode};
 pub enum Procedure {
     ///opens a link to a device
     CreateLink,
@@ -31,10 +42,10 @@ pub enum Procedure {
     DestroyIntrChan,
 }
 
-impl Into<u32> for Procedure {
-    fn into(self) -> u32 {
+impl From<Procedure> for u32 {
+    fn from(p: Procedure) -> Self {
         use Procedure::*;
-        match self {
+        match p {
             CreateLink => 10,
             DeviceWrite => 11,
             DeviceRead => 12,
@@ -51,5 +62,361 @@ impl Into<u32> for Procedure {
             CreateIntrChan => 25,
             DestroyIntrChan => 26,
         }
+    }
+}
+use Procedure::*;
+pub struct Core<S> {
+    io: S,
+    buffer: BytesMut,
+}
+
+impl<S> RpcProgram for Core<S> {
+    type IO = S;
+    const PROGRAM: u32 = 0x0607AF;
+    const VERSION: u32 = super::VERSION;
+    fn get_io(&self) -> &Self::IO {
+        &self.io
+    }
+    fn mut_io(&mut self) -> &mut Self::IO {
+        &mut self.io
+    }
+    fn buffer(&self) -> BytesMut {
+        self.buffer.clone()
+    }
+}
+
+impl<S> Core<S> {
+    pub fn new(io: S) -> Self {
+        Self {
+            io,
+            buffer: BytesMut::new(),
+        }
+    }
+}
+
+impl Core<TcpStream> {
+    pub fn new_tcp<A: ToSocketAddrs>(addr: A) -> Result<Self> {
+        let io = TcpStream::connect(addr)?;
+        Ok(Self {
+            io,
+            buffer: BytesMut::new(),
+        })
+    }
+    ///return (link_id,abort_port,max_recv_size)
+    pub fn create_link(
+        &mut self,
+        client_id: i32,
+        lock: bool,
+        lock_timeout: u32,
+        name: String,
+    ) -> Result<(i32, u32, u32)> {
+        let resp: xdr::Create_LinkResp = self.call_anonymously(
+            CreateLink,
+            xdr::Create_LinkParms {
+                clientId: xdr::long(client_id),
+                lockDevice: lock,
+                lock_timeout: xdr::ulong(lock_timeout),
+                device: name,
+            },
+        )?;
+        Result::from(ErrorCode::from(resp.error))?;
+        Ok((resp.lid.0 .0, resp.abortPort.0, resp.maxRecvSize.0))
+    }
+
+    pub fn destroy_link(&mut self, link_id: i32) -> Result<()> {
+        let resp: xdr::Device_Error =
+            self.call_anonymously(DestroyLink, xdr::Device_Link(xdr::long(link_id)))?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_write<D: AsRef<[u8]> + Debug + Serialize>(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+        data: D,
+    ) -> Result<usize> {
+        let resp: xdr::Device_WriteResp = self.call_anonymously(
+            DeviceWrite,
+            xdr::Device_WriteParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+                data,
+            },
+        )?;
+        Result::from(ErrorCode::from(resp.error))?;
+        Ok(resp.size.0 as usize)
+    }
+    pub fn device_read(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+        req_size: usize,
+        term: char,
+    ) -> Result<Bytes> {
+        let resp: xdr::Device_ReadResp<Bytes> = self.call_anonymously(
+            DeviceRead,
+            xdr::Device_ReadParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                requestSize: xdr::ulong(req_size as u32),
+                flags: flags.into(),
+                termChar: xdr::xdr_char(term as u32),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp.error))?;
+        let reason = resp.reason.0;
+        if (reason & (1 << 2)) == 0 {
+            return Ok(resp.data);
+        } else if (reason & (1 << 0)) == 0 {
+            //TO-DO: requestSize transferred
+            return Ok(resp.data);
+        } else if reason & (1 << 1) == 0 {
+            //TO-DO: terminator transferred
+            return Ok(resp.data);
+        } else if reason == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "device output buffer full",
+            ));
+        } else {
+            unreachable!()
+        }
+    }
+    pub fn device_read_status(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+    ) -> Result<u32> {
+        let resp: xdr::Device_ReadStbResp = self.call_anonymously(
+            DeviceReadStb,
+            xdr::Device_GenericParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp.error))?;
+        Ok(resp.stb.0)
+    }
+    pub fn device_trigger(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+    ) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceTrigger,
+            xdr::Device_GenericParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_clear(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+    ) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceClear,
+            xdr::Device_GenericParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_remote(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+    ) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceRemote,
+            xdr::Device_GenericParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_local(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+    ) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceLocal,
+            xdr::Device_GenericParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_lock(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+    ) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceLock,
+            xdr::Device_LockParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                lock_timeout: xdr::ulong(lock_timeout),
+                flags: flags.into(),
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_unlock(&mut self, link_id: i32) -> Result<()> {
+        let resp: xdr::Device_Error =
+            self.call_anonymously(DeviceUnlock, &xdr::Device_Link(xdr::long(link_id)))?;
+        Result::from(ErrorCode::from(resp))
+    }
+
+    pub fn create_intr_chan<A: ToSocketAddrs>(
+        &mut self,
+        addr: A,
+        prog_num: u32,
+        prog_ver: u32,
+        protocol: IpProtocol,
+    ) -> Result<()> {
+        let protocol = match protocol {
+            IpProtocol::Tcp => xdr::Device_AddrFamily::DEVICE_TCP,
+            IpProtocol::Udp => xdr::Device_AddrFamily::DEVICE_UDP,
+        };
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .expect("invalid socket address");
+        let ip = match addr.ip() {
+            IpAddr::V4(i) => i,
+            IpAddr::V6(_) => panic!("ipv6 not supported by vxi11"),
+        };
+        let resp: xdr::Device_Error = self.call_anonymously(
+            CreateIntrChan,
+            xdr::Device_RemoteFunc {
+                hostAddr: xdr::ulong(u32::from_be_bytes(ip.octets())), //not sure if big endian
+                hostPort: xdr::ushort(addr.port() as u32),
+                progNum: xdr::ulong(prog_num),
+                progVers: xdr::ulong(prog_ver),
+                progFamily: protocol,
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn destroy_intr_chan(&mut self) -> Result<()> {
+        let resp: xdr::Device_Error = self.call_anonymously(DestroyIntrChan, ())?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_enable_srq<D: AsRef<[u8]> + Debug + Serialize>(
+        &mut self,
+        link_id: i32,
+        enable: bool,
+        handle: D,
+    ) -> Result<()> {
+        debug_assert!(handle.as_ref().len() <= 40); //handle<40>
+        let resp: xdr::Device_Error = self.call_anonymously(
+            DeviceEnableSrq,
+            xdr::Device_EnableSrqParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                enable,
+                handle, //Store handle<40> so it can be passed back to the network instrument client in a device_intr_srq RPC when a service request occurs.
+            },
+        )?;
+        Result::from(ErrorCode::from(resp))
+    }
+    pub fn device_do_cmd<D: AsRef<[u8]> + Debug + Serialize>(
+        &mut self,
+        link_id: i32,
+        flags: DeviceFlags,
+        lock_timeout: u32,
+        io_timeout: u32,
+        cmd: i32,
+        network_order: bool,
+        data_size: i32,
+        data_in: D,
+    ) -> Result<Bytes> {
+        let resp: xdr::Device_DocmdResp<Bytes> = self.call_anonymously(
+            DeviceDoCmd,
+            xdr::Device_DocmdParms {
+                lid: xdr::Device_Link(xdr::long(link_id)),
+                flags: flags.into(),
+                io_timeout: xdr::ulong(io_timeout),
+                lock_timeout: xdr::ulong(lock_timeout),
+                cmd: xdr::long(cmd),
+                network_order,
+                /*
+                indicates the size of individual data elements A value of one(1) in datasize means byte data and no swapping is performed. A value of two(2) in datasize means 16-bit word data and bytes are swapped on word boundaries. A value of four(4) in datasize means 32-bit longword data and bytes are swapped on longword boundaries. A value of eight(8) in datasize means 64-bit data and bytes are swapped on 8-byte boundaries.
+                */
+                datasize: xdr::long(data_size),
+                data_in,
+            },
+        )?;
+        Result::from(ErrorCode::from(resp.error))?;
+        Ok(resp.data_out)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceFlags(i32);
+impl DeviceFlags {
+    pub fn new_zero() -> Self {
+        Self(0)
+    }
+    pub fn wait_lock(mut self) -> Self {
+        self.0 |= 1 << 0;
+        self
+    }
+    pub fn end(mut self) -> Self {
+        self.0 |= 1 << 3;
+        self
+    }
+    pub fn terminator_set(mut self) -> Self {
+        self.0 |= 1 << 7;
+        self
+    }
+}
+impl From<i32> for DeviceFlags {
+    fn from(n: i32) -> Self {
+        Self(n)
+    }
+}
+impl From<DeviceFlags> for i32 {
+    fn from(d: DeviceFlags) -> Self {
+        d.0
+    }
+}
+
+impl From<DeviceFlags> for xdr::Device_Flags {
+    fn from(f: DeviceFlags) -> Self {
+        Self(xdr::long(f.into()))
     }
 }

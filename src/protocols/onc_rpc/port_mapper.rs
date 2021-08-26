@@ -1,5 +1,5 @@
 use super::xdr::*;
-use super::{Rpc, RpcBroadcast, RpcProgram, RpcSocket, RpcStream};
+use super::{IpProtocol, Rpc, RpcBroadcast, RpcProgram, RpcSocket, RpcStream};
 use bytes::{Buf, BytesMut};
 use std::{
     io::Result,
@@ -8,10 +8,7 @@ use std::{
 };
 
 pub const PORT: u16 = 111;
-pub enum IpProtocol {
-    Tcp,
-    Udp,
-}
+
 pub struct PortMapper<S> {
     io: S,
     buffer: BytesMut,
@@ -88,7 +85,7 @@ impl<S: RpcStream> PortMapper<S> {
     pub fn get_port(&mut self, prog: u32, vers: u32, ip_pro: IpProtocol) -> Result<u32> {
         let mut b: bytes::Bytes = self.call_anonymously(
             Procedure::GetPort,
-            &mapping {
+            mapping {
                 port: 0,
                 prog,
                 prot: match ip_pro {
@@ -118,7 +115,7 @@ impl<S: RpcSocket> PortMapper<S> {
     ) -> Result<impl Iterator<Item = Result<(u32, SocketAddr)>> + 'a> {
         let stream = self.broadcast_anonymously(
             Procedure::GetPort,
-            &mapping {
+            mapping {
                 port: 0,
                 prog,
                 prot: match ip_pro {

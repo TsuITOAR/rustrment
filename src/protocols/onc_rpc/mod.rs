@@ -11,6 +11,12 @@ use std::{
 };
 
 include!(concat!(env!("OUT_DIR"), r#"/xdr.rs"#));
+
+pub enum IpProtocol {
+    Tcp,
+    Udp,
+}
+
 const HEAD_LEN: usize = 4;
 fn parse_bytes(bytes: Bytes) -> Result<RpcMessage<Bytes, Bytes>> {
     match RpcMessage::try_from(bytes) {
@@ -287,16 +293,86 @@ pub trait RpcProgram {
     fn buffer(&self) -> BytesMut;
 }
 
-pub trait Rpc: RpcProgram
+pub trait Rpc {
+    fn call<P, T, C, R>(
+        &mut self,
+        procedure: P,
+        auth_credentials: AuthFlavor<T>,
+        auth_verifier: AuthFlavor<T>,
+        content: C,
+    ) -> Result<R>
+    where
+        P: Into<u32>,
+        T: AsRef<[u8]>,
+        C: Serialize,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display;
+    fn call_anonymously<P, C, R>(&mut self, procedure: P, content: C) -> Result<R>
+    where
+        P: Into<u32>,
+        C: Serialize,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
+        self.call::<P, &[u8], C, R>(
+            procedure,
+            AuthFlavor::AuthNone(None),
+            AuthFlavor::AuthNone(None),
+            content,
+        )
+    }
+}
+
+pub trait RpcBroadcast {
+    fn broadcast<'a, P, T, C, A, R>(
+        &'a mut self,
+        procedure: P,
+        auth_credentials: AuthFlavor<T>,
+        auth_verifier: AuthFlavor<T>,
+        content: C,
+        addr: A,
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
+    where
+        P: Into<u32>,
+        T: AsRef<[u8]>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display;
+    fn broadcast_anonymously<'a, P, C, A, R>(
+        &'a mut self,
+        procedure: P,
+        content: C,
+        addr: A,
+    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
+    where
+        P: Into<u32>,
+        C: Serialize,
+        A: ToSocketAddrs,
+        R: TryFrom<Bytes>,
+        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    {
+        self.broadcast::<P, &[u8], C, A, R>(
+            procedure,
+            AuthFlavor::AuthNone(None),
+            AuthFlavor::AuthNone(None),
+            content,
+            addr,
+        )
+    }
+}
+
+impl<S> Rpc for S
 where
-    <Self as RpcProgram>::IO: RpcStream,
+    S: RpcProgram,
+    <S as RpcProgram>::IO: RpcStream,
 {
     fn call<P, T, C, R>(
         &mut self,
         procedure: P,
         auth_credentials: AuthFlavor<T>,
         auth_verifier: AuthFlavor<T>,
-        content: &C,
+        content: C,
     ) -> Result<R>
     where
         P: Into<u32>,
@@ -306,7 +382,7 @@ where
         <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
     {
         let xid = self.gen_xid();
-        let content = serde_xdr::to_bytes(content).map_err(|x| Error::new(ErrorKind::Other, x))?;
+        let content = serde_xdr::to_bytes(&content).map_err(|x| Error::new(ErrorKind::Other, x))?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
@@ -372,32 +448,18 @@ where
             ))
         }
     }
-    fn call_anonymously<P, C, R>(&mut self, procedure: P, content: &C) -> Result<R>
-    where
-        P: Into<u32>,
-        C: Serialize,
-        R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
-    {
-        self.call::<P, &[u8], C, R>(
-            procedure,
-            AuthFlavor::AuthNone(None),
-            AuthFlavor::AuthNone(None),
-            content,
-        )
-    }
 }
-
-pub trait RpcBroadcast: RpcProgram
+impl<S> RpcBroadcast for S
 where
-    <Self as RpcProgram>::IO: RpcSocket,
+    S: RpcProgram,
+    <S as RpcProgram>::IO: RpcSocket,
 {
     fn broadcast<'a, P, T, C, A, R>(
         &'a mut self,
         procedure: P,
         auth_credentials: AuthFlavor<T>,
         auth_verifier: AuthFlavor<T>,
-        content: &C,
+        content: C,
         addr: A,
     ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
     where
@@ -413,7 +475,7 @@ where
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
-        let content = serde_xdr::to_bytes(content).map_err(|x| Error::new(ErrorKind::Other, x))?;
+        let content = serde_xdr::to_bytes(&content).map_err(|x| Error::new(ErrorKind::Other, x))?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
@@ -428,40 +490,6 @@ where
             Some(stream_receive(self, xid))
         })))
     }
-    fn broadcast_anonymously<'a, P, C, A, R>(
-        &'a mut self,
-        procedure: P,
-        content: &C,
-        addr: A,
-    ) -> Result<std::iter::FromFn<Box<dyn FnMut() -> Option<Result<(R, SocketAddr)>> + 'a>>>
-    where
-        P: Into<u32>,
-        C: Serialize,
-        A: ToSocketAddrs,
-        R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
-    {
-        self.broadcast::<P, &[u8], C, A, R>(
-            procedure,
-            AuthFlavor::AuthNone(None),
-            AuthFlavor::AuthNone(None),
-            content,
-            addr,
-        )
-    }
-}
-
-impl<T> Rpc for T
-where
-    T: RpcProgram,
-    <T as RpcProgram>::IO: RpcStream,
-{
-}
-impl<T> RpcBroadcast for T
-where
-    T: RpcProgram,
-    <T as RpcProgram>::IO: RpcSocket,
-{
 }
 
 impl RpcStream for TcpStream {

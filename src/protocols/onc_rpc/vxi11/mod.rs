@@ -1,7 +1,7 @@
 use std::{
     fmt::Debug,
     io::Result,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     time::Duration,
 };
 
@@ -179,12 +179,12 @@ impl Vxi11 {
         lock: bool,
         lock_timeout: Duration,
         io_timeout: Duration,
-        name: String,
     ) -> Result<Self> {
         let addr = addr
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
+        let name = "TCPIP".to_string();
         let mut core = Core::new_tcp::<SocketAddr>(addr)?;
         let (link_id, abort_port, max_recv_size) =
             core.create_link(client_id, lock, lock_timeout.as_millis() as u32, name)?;

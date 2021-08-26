@@ -116,6 +116,15 @@ impl Core<TcpStream> {
                 clientId: xdr::long(client_id),
                 lockDevice: lock,
                 lock_timeout: xdr::ulong(lock_timeout),
+                /*
+                A TCP/IP-IEEE 488.1 Interface Device SHALL support a device string of the following format:
+                 <intf_name>[,<primary_addr>[,<secondary_addr>]]
+                where:
+                <intf_name> A name corresponding to a single IEEE 488.1 interface. This name SHALL
+                uniquely identify the interface on the TCP/IP-IEEE 488.1 Interface Device.
+                <primary_addr> The primary address of a IEEE 488.1 device on the IEEE 488.1 interface (optional).
+                <secondary_addr> The secondary address of a IEEE 488.1 device on the IEEE 488.1 interface (optional).
+                 */
                 device: name,
             },
         )?;

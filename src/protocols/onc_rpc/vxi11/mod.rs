@@ -158,7 +158,9 @@ impl From<DeviceFlags> for xdr::Device_Flags {
 }
 
 const REQ_SIZE: usize = 512;
-const TERM: char = '\n';
+const TERM: char = '\n'; 
+//https://zone.ni.com/reference/en-XX/help/370131S-01/ni-visa/visaresourcesyntaxandexamples/
+const INTERFACE_NAME: &str = "TCPIP";
 pub struct Vxi11 {
     pub client_id: i32,
     link_id: i32,
@@ -184,7 +186,7 @@ impl Vxi11 {
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
-        let name = "TCPIP".to_string();
+        let name = INTERFACE_NAME.to_string();
         let mut core = Core::new_tcp::<SocketAddr>(addr)?;
         let (link_id, abort_port, max_recv_size) =
             core.create_link(client_id, lock, lock_timeout.as_millis() as u32, name)?;

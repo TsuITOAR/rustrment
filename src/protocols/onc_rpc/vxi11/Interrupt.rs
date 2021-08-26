@@ -25,7 +25,7 @@ pub struct Interrupt<S> {
 
 impl<S> RpcProgram for Interrupt<S> {
     type IO = S;
-    const PROGRAM: u32 = 0x0607AF;
+    const PROGRAM: u32 = 0x0607B1;
     const VERSION: u32 = super::VERSION;
     fn get_io(&self) -> &Self::IO {
         &self.io

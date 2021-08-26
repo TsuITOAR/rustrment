@@ -1,18 +1,21 @@
 use std::{
     fmt::Debug,
     io::Result,
-    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     time::Duration,
 };
 
-use bytes::Bytes;
+use bytes::{buf::Reader, Buf, Bytes};
 use serde::Serialize;
 
 use crate::protocols::onc_rpc::RpcProgram;
 
 use self::{abort::Abort, core::Core, interrupt::Interrupt};
 
-use super::xdr;
+use super::{
+    port_mapper::{self, PortMapper},
+    xdr,
+};
 pub mod abort;
 pub mod core;
 pub mod interrupt;
@@ -72,10 +75,10 @@ impl ToString for ErrorCode {
             NoLockHeld => "no lock held by this link",
             IOTimeOut => "I/O timeout",
             IOError => "I/O error",
-            InvalidAddress => "Invalid address",
+            InvalidAddress => "invalid address",
             Abort => "abort",
             AlreadyEstablished => "channel already established",
-            Unknown(s) => return format!("Unknown error code: {}", s),
+            Unknown(s) => return format!("unknown error code: {}", s),
         }
         .into()
     }
@@ -158,11 +161,51 @@ impl From<DeviceFlags> for xdr::Device_Flags {
 }
 
 const REQ_SIZE: usize = 512;
-const TERM: char = '\n'; 
+const TERM: char = '\n';
 //https://zone.ni.com/reference/en-XX/help/370131S-01/ni-visa/visaresourcesyntaxandexamples/
 const INTERFACE_NAME: &str = "TCPIP";
-pub struct Vxi11 {
+pub struct Vxi11Cilent {
     pub client_id: i32,
+    pub lock: bool,
+    pub lock_timeout: Duration,
+    pub io_timeout: Duration,
+    pub req_size: u32,
+    pub term: char,
+}
+
+impl Vxi11Cilent {
+    pub fn new(
+        client_id: i32,
+        lock: bool,
+        lock_timeout: Duration,
+        io_timeout: Duration,
+        req_size: u32,
+        term: char,
+    ) -> Self {
+        Self {
+            client_id,
+            io_timeout,
+            lock_timeout,
+            lock,
+            req_size,
+            term,
+        }
+    }
+}
+impl Default for Vxi11Cilent {
+    fn default() -> Self {
+        Self {
+            client_id: 20210826,
+            io_timeout: Duration::from_millis(500),
+            lock_timeout: Duration::from_millis(500),
+            lock: true,
+            req_size: 100 * 1024 * 1024, //100M
+            term: '\n',
+        }
+    }
+}
+
+pub struct Vxi11 {
     link_id: i32,
     lock_timeout: Duration,
     io_timeout: Duration,
@@ -172,6 +215,7 @@ pub struct Vxi11 {
     core: Core<TcpStream>,
     abort: Abort<TcpStream>,
     interrupt: Option<Interrupt<TcpStream>>,
+    data_to_read: Option<Reader<Bytes>>,
 }
 
 impl Vxi11 {
@@ -193,7 +237,6 @@ impl Vxi11 {
         let abort_addr = SocketAddr::new(addr.ip(), abort_port as u16);
         let abort = Abort::new(TcpStream::connect(abort_addr)?);
         Ok(Self {
-            client_id,
             abort,
             core,
             interrupt: None,
@@ -203,6 +246,7 @@ impl Vxi11 {
             max_recv_size,
             req_size: REQ_SIZE,
             term: TERM,
+            data_to_read: None,
         })
     }
     pub fn mut_core(&mut self) -> &mut Core<TcpStream> {
@@ -273,5 +317,49 @@ impl Vxi11 {
         debug_assert_eq!(addr, self.core.mut_io().peer_addr()?);
         self.interrupt = Some(Interrupt::new(prog_num, prog_ver, interrupt));
         Ok(())
+    }
+}
+impl std::io::Read for Vxi11 {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let mut reader = match self.data_to_read.take() {
+            None => self.device_read(self.req_size, self.term)?.reader(),
+            Some(r) => r,
+        };
+        let len = reader.read(buf)?;
+        if reader.get_ref().has_remaining() {
+            self.data_to_read = Some(reader);
+        }
+        Ok(len)
+    }
+}
+
+impl std::io::Write for Vxi11 {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.device_write(buf)
+    }
+    fn flush(&mut self) -> Result<()> {
+        self.mut_core().get_io().flush()
+    }
+}
+impl crate::Protocol for Vxi11Cilent {
+    type Address = IpAddr;
+    type Error = std::io::Error;
+    type IO = Vxi11;
+    fn connect(self, address: Self::Address) -> std::result::Result<Self::IO, Self::Error> {
+        let mut port_mapper =
+            PortMapper::new_tcp(SocketAddr::new(address, port_mapper::PORT), self.io_timeout)?;
+        let core_port = port_mapper.get_port(
+            <Core<TcpStream> as RpcProgram>::PROGRAM,
+            <Core<TcpStream> as RpcProgram>::VERSION,
+            super::IpProtocol::Tcp,
+        )?;
+        let vxi11_addr = SocketAddr::new(address, core_port as u16);
+        Vxi11::new(
+            vxi11_addr,
+            self.client_id,
+            self.lock,
+            self.lock_timeout,
+            self.io_timeout,
+        )
     }
 }

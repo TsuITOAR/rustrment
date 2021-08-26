@@ -8,7 +8,7 @@ use std::{
 
 use crate::protocols::onc_rpc::{IpProtocol, Rpc, RpcProgram};
 
-use super::{xdr, ErrorCode};
+use super::{xdr, DeviceFlags, ErrorCode};
 pub enum Procedure {
     ///opens a link to a device
     CreateLink,
@@ -120,7 +120,7 @@ impl Core<TcpStream> {
             },
         )?;
         Result::from(ErrorCode::from(resp.error))?;
-        Ok((resp.lid.0 .0, resp.abortPort.0, resp.maxRecvSize.0))
+        Ok(((resp.lid.0).0, resp.abortPort.0, resp.maxRecvSize.0))
     }
 
     pub fn destroy_link(&mut self, link_id: i32) -> Result<()> {
@@ -382,41 +382,5 @@ impl Core<TcpStream> {
         )?;
         Result::from(ErrorCode::from(resp.error))?;
         Ok(resp.data_out)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct DeviceFlags(i32);
-impl DeviceFlags {
-    pub fn new_zero() -> Self {
-        Self(0)
-    }
-    pub fn wait_lock(mut self) -> Self {
-        self.0 |= 1 << 0;
-        self
-    }
-    pub fn end(mut self) -> Self {
-        self.0 |= 1 << 3;
-        self
-    }
-    pub fn terminator_set(mut self) -> Self {
-        self.0 |= 1 << 7;
-        self
-    }
-}
-impl From<i32> for DeviceFlags {
-    fn from(n: i32) -> Self {
-        Self(n)
-    }
-}
-impl From<DeviceFlags> for i32 {
-    fn from(d: DeviceFlags) -> Self {
-        d.0
-    }
-}
-
-impl From<DeviceFlags> for xdr::Device_Flags {
-    fn from(f: DeviceFlags) -> Self {
-        Self(xdr::long(f.into()))
     }
 }

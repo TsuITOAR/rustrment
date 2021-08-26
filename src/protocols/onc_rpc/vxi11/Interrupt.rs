@@ -1,6 +1,5 @@
 use crate::protocols::onc_rpc::{RpcProgram, RpcStream};
 
-use super::{xdr, ErrorCode};
 use bytes::{Bytes, BytesMut};
 use std::io::Result;
 pub enum Procedure {
@@ -18,6 +17,8 @@ impl From<Procedure> for u32 {
 }
 
 pub struct Interrupt<S> {
+    prog_num: u32,
+    prog_ver: u32,
     io: S,
     buffer: BytesMut,
 }
@@ -38,8 +39,10 @@ impl<S> RpcProgram for Interrupt<S> {
 }
 
 impl<S> Interrupt<S> {
-    pub fn new(io: S) -> Self {
+    pub fn new(prog_num: u32, prog_ver: u32, io: S) -> Self {
         Self {
+            prog_num,
+            prog_ver,
             io,
             buffer: BytesMut::new(),
         }
@@ -52,11 +55,16 @@ where
 {
     ///receive interrupt message from device
     pub fn device_intr_srq(&mut self) -> Result<Bytes> {
-        let buf = self.buffer();
-        let mess = self.mut_io().read(buf)?;
-        let call = mess.call_body().unwrap();
-        debug_assert_eq!(call.program(), u32::from(Procedure::DeviceIntrSrq));
-        debug_assert_eq!(call.program_version(), super::VERSION);
-        Ok(call.payload().clone())
+        loop {
+            let buf = self.buffer();
+            let mess = self.mut_io().read(buf)?;
+            let call = mess.call_body().unwrap();
+            if call.program() == self.prog_num
+                && call.program_version() == self.prog_ver
+                && call.procedure() == u32::from(Procedure::DeviceIntrSrq)
+            {
+                return Ok(call.payload().clone());
+            }
+        }
     }
 }

@@ -163,7 +163,8 @@ impl From<DeviceFlags> for xdr::Device_Flags {
 const REQ_SIZE: usize = 512;
 const TERM: char = '\n';
 //https://zone.ni.com/reference/en-XX/help/370131S-01/ni-visa/visaresourcesyntaxandexamples/
-const INTERFACE_NAME: &str = "TCPIP";
+//matlab instrument control box send inst0
+const INTERFACE_NAME: &str = "inst0";
 pub struct Vxi11Client {
     pub client_id: i32,
     pub lock: bool,
@@ -171,6 +172,7 @@ pub struct Vxi11Client {
     pub io_timeout: Duration,
     pub req_size: u32,
     pub term: char,
+    pub flags: DeviceFlags,
 }
 
 impl Vxi11Client {
@@ -181,6 +183,7 @@ impl Vxi11Client {
         io_timeout: Duration,
         req_size: u32,
         term: char,
+        flags: DeviceFlags,
     ) -> Self {
         Self {
             client_id,
@@ -189,6 +192,7 @@ impl Vxi11Client {
             lock,
             req_size,
             term,
+            flags,
         }
     }
 }
@@ -201,19 +205,21 @@ impl Default for Vxi11Client {
             lock: true,
             req_size: 100 * 1024 * 1024, //100M
             term: '\n',
+            flags: DeviceFlags::new_zero().terminator_set(),
         }
     }
 }
 
 pub struct Vxi11 {
     link_id: i32,
-    lock_timeout: Duration,
-    io_timeout: Duration,
+    lock_timeout: u32,
+    io_timeout: u32,
     max_recv_size: u32,
     req_size: usize,
     term: char,
+    flags: DeviceFlags,
     core: Core<TcpStream>,
-    abort: Abort<TcpStream>,
+    abort: Option<Abort<TcpStream>>,
     interrupt: Option<Interrupt<TcpStream>>,
     data_to_read: Option<Reader<Bytes>>,
 }
@@ -235,24 +241,36 @@ impl Vxi11 {
         let (link_id, abort_port, max_recv_size) =
             core.create_link(client_id, lock, lock_timeout.as_millis() as u32, name)?;
         let abort_addr = SocketAddr::new(addr.ip(), abort_port as u16);
-        let abort = Abort::new(TcpStream::connect(abort_addr)?);
+        let abort = match TcpStream::connect(abort_addr) {
+            Ok(c) => Some(Abort::new(c)),
+            Err(e) => {
+                //TO-DO there should be a warning message
+                println!(
+                    "failed establishing abort channel on '{}': {}",
+                    abort_addr.to_string(),
+                    e.to_string()
+                );
+                None
+            }
+        };
         Ok(Self {
             abort,
             core,
             interrupt: None,
-            io_timeout,
-            lock_timeout,
+            io_timeout: io_timeout.as_millis() as u32,
+            lock_timeout: lock_timeout.as_millis() as u32,
             link_id,
             max_recv_size,
             req_size: REQ_SIZE,
             term: TERM,
             data_to_read: None,
+            flags: DeviceFlags::new_zero().terminator_set(),
         })
     }
     pub fn mut_core(&mut self) -> &mut Core<TcpStream> {
         &mut self.core
     }
-    pub fn mut_abort(&mut self) -> &mut Abort<TcpStream> {
+    pub fn mut_abort(&mut self) -> &mut Option<Abort<TcpStream>> {
         &mut self.abort
     }
     pub fn mut_interrupt(&mut self) -> Option<&mut Interrupt<TcpStream>> {
@@ -267,11 +285,15 @@ impl Vxi11 {
         self
     }
     pub fn set_io_timeout(&mut self, dur: Duration) -> &mut Self {
-        self.io_timeout = dur;
+        self.io_timeout = dur.as_millis() as u32;
         self
     }
     pub fn set_lock_timeout(&mut self, dur: Duration) -> &mut Self {
-        self.lock_timeout = dur;
+        self.lock_timeout = dur.as_millis() as u32;
+        self
+    }
+    pub fn set_flags(&mut self, flags: DeviceFlags) -> &mut Self {
+        self.flags = flags;
         self
     }
     pub fn device_write<M: AsRef<[u8]> + Debug + Serialize>(
@@ -281,24 +303,52 @@ impl Vxi11 {
         debug_assert!(message.as_ref().len() <= self.max_recv_size as usize);
         self.core.device_write(
             self.link_id,
-            DeviceFlags::new_zero(),
-            self.lock_timeout.as_millis() as u32,
-            self.io_timeout.as_millis() as u32,
+            self.flags,
+            self.lock_timeout,
+            self.io_timeout,
             message,
         )
     }
-    pub fn device_read(&mut self, req_size: usize, term: char) -> Result<Bytes> {
-        self.core.device_read(
+    pub fn device_write_str<S: AsRef<str>>(&mut self, message: S) -> Result<usize> {
+        let message = message.as_ref().as_bytes();
+        let mut temp;
+        let mess = if message.last().is_none() || *message.last().unwrap() != self.term as u8 {
+            temp = Vec::with_capacity(message.len() + 1);
+            temp.extend_from_slice(message);
+            temp.push(self.term as u8);
+            temp.as_ref()
+        } else {
+            message
+        };
+        self.core.device_write(
             self.link_id,
-            DeviceFlags::new_zero(),
-            self.lock_timeout.as_millis() as u32,
-            self.io_timeout.as_millis() as u32,
-            req_size,
-            term,
+            self.flags,
+            self.lock_timeout,
+            self.io_timeout,
+            mess,
         )
     }
+    pub fn device_read(&mut self) -> Result<Bytes> {
+        self.core.device_read(
+            self.link_id,
+            self.flags,
+            self.lock_timeout,
+            self.io_timeout,
+            self.req_size,
+            self.term,
+        )
+    }
+    pub fn device_read_str(&mut self) -> Result<String> {
+        Ok(String::from_utf8_lossy(self.device_read()?.as_ref()).to_string())
+    }
     pub fn device_abort(&mut self) -> Result<()> {
-        self.abort.device_abort(self.link_id)
+        match self.abort {
+            Some(ref mut c) => c.device_abort(self.link_id),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "abort core not established",
+            )),
+        }
     }
     pub fn establish_interrupt<A: ToSocketAddrs>(
         &mut self,
@@ -318,11 +368,15 @@ impl Vxi11 {
         self.interrupt = Some(Interrupt::new(prog_num, prog_ver, interrupt));
         Ok(())
     }
+    pub fn device_trigger(&mut self) -> Result<()> {
+        self.core
+            .device_trigger(self.link_id, self.flags, self.lock_timeout, self.io_timeout)
+    }
 }
 impl std::io::Read for Vxi11 {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut reader = match self.data_to_read.take() {
-            None => self.device_read(self.req_size, self.term)?.reader(),
+            None => self.device_read()?.reader(),
             Some(r) => r,
         };
         let len = reader.read(buf)?;

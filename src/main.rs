@@ -7,7 +7,13 @@ use std::{
 
 use rustrument::{
     instruments::{infiniium::Infiniium, Messenger},
-    protocols::{onc_rpc::RpcProgram, Protocol, Tcp},
+    protocols::{
+        onc_rpc::{
+            vxi11::{DeviceFlags, Vxi11Client},
+            RpcProgram,
+        },
+        Protocol, Tcp,
+    },
     DefaultConfig, PiezoController,
 };
 fn get_local_ip() -> Option<IpAddr> {
@@ -27,7 +33,18 @@ fn get_local_ip() -> Option<IpAddr> {
     };
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    test_port_mapper("192.168.31.156:111")?;
+    test_vxi11_connect("192.168.3.96".parse()?)?;
+    Ok(())
+}
+fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {
+    let mut client = Vxi11Client::default();
+    client.lock = false;
+    client.flags = DeviceFlags::new_zero();
+    let mut connect = client.connect(addr)?;
+    connect.device_write("*IDN?\n")?;
+    let mess = connect.device_read_str()?;
+    println!("{}", mess);
+    connect.device_trigger()?;
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
@@ -51,7 +68,7 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
         println!("{}", udp_handler.tcp_port(prog, vers)?);
         println!("{}", udp_handler.udp_port(prog, vers)?);
     }
-    
+
     {
         let mut broad_caster = PortMapper::new_broadcaster(local_addr, dur)?;
         use std::io::ErrorKind;

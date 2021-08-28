@@ -1,7 +1,7 @@
 use bytes::{Buf, Bytes};
 pub mod com_cmd;
-pub mod error;
-type Result<T> = std::result::Result<T, error::ScpiError>;
+pub mod scpi_error;
+type Result<T> = std::result::Result<T, scpi_error::ScpiError>;
 pub trait Scpi {
     fn scpi_send<C: AsRef<[u8]>>(&mut self, command: C) -> Result<()>;
     fn scpi_read(&mut self) -> Result<Bytes>;

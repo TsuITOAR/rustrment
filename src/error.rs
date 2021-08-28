@@ -7,7 +7,7 @@ enum Error {
     #[error("transfer layer error: {0}")]
     TransferError(#[from] std::io::Error),
     #[error("protocols error: {0}")]
-    ProtocolError(#[from] protocols::error::ProtocolError),
+    ProtocolError(#[from] protocols::protocol_error::ProtocolError),
     #[error("scpi error: {0}")]
-    ScpiError(#[from] scpi::error::ScpiError),
+    ScpiError(#[from] scpi::scpi_error::ScpiError),
 }

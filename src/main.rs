@@ -36,21 +36,21 @@ fn get_local_ip() -> Option<IpAddr> {
 
 const TIME_OUT: std::time::Duration = Duration::from_secs(1);
 fn main() -> Result<(), Box<dyn Error>> {
-    test_vxi11_connect("192.168.3.96".parse()?)?;
+    test_vxi11_connect("192.168.31.156".parse()?)?;
     Ok(())
 }
 fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {
     let mut client_osc = Vxi11Client::default();
     client_osc.lock = false;
     client_osc.flags = DeviceFlags::new_zero();
-    let mut osc = client_osc.connect(addr, TIME_OUT * 5)?;
-    osc.device_write_str(":SYSTem:DSP \"Hello World\"\n")?;
-    osc.device_write_str(":SINGle")?;
-    let mut client_awg = Vxi11Client::default();
-    client_awg.lock = false;
-    client_awg.flags = DeviceFlags::new_zero();
-    let mut awg = client_awg.connect("192.168.3.133".parse()?, TIME_OUT * 5)?;
-    awg.device_write_str("*TRG")?;
+    let mut osc = client_osc.connect(addr, TIME_OUT)?;
+    if let Err(e) = osc.establish_interrupt((get_local_ip().unwrap(), 3480), 3457, 1) {
+        println!("establish interrupt channel failed: {}", e);
+    };
+    osc.device_write_str("*IDN?")?;
+
+    println!("{}", osc.device_read_str()?);
+
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {

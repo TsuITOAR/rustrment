@@ -188,7 +188,7 @@ impl Core<TcpStream> {
             //TO-DO: terminator transferred
             return Ok(resp.data);
         } else if reason == 0 {
-            return Err(super::error::Vxi11Error::DevOutputBufFull);
+            return Err(super::vxi11_error::Vxi11Error::DevOutputBufFull);
         } else {
             unreachable!()
         }

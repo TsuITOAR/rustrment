@@ -5,12 +5,12 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum OncRpcError {
     #[error("IO error: {0}")]
-    TransferLayerError(#[from] std::io::Error),
+    IOError(#[from] std::io::Error),
     #[error("invalid onc-rpc message: {0}")]
     InvalidRpcMessage(#[from] onc_rpc::Error),
-    #[error("onc-rpc rejected")]
+    #[error("onc-rpc rejected: {0}")]
     RpcRejected(#[from] RejectedReply),
-    #[error("onc-rpc accepted status error")]
+    #[error("onc-rpc accepted status error: {0}")]
     UnsuccessfulAcceptStatus(#[from] UnsuccessfulAcceptStatus),
     #[error("serialize procedure specific parameters error: {0}")]
     SerializationError(#[from] serde_xdr::CompatSerializationError),
@@ -23,7 +23,7 @@ pub enum OncRpcError {
 }
 impl OncRpcError {
     pub fn is_timeout(&self) -> bool {
-        if let OncRpcError::TransferLayerError(e) = self {
+        if let OncRpcError::IOError(e) = self {
             if e.kind() == std::io::ErrorKind::TimedOut {
                 return true;
             }
@@ -51,8 +51,11 @@ pub enum UnsuccessfulAcceptStatus {
     #[error("The server experienced an internal error.")]
     SystemError,
 }
-impl<S: AsRef<[u8]>> From<&AcceptedStatus<S>> for UnsuccessfulAcceptStatus {
-    fn from(value: &AcceptedStatus<S>) -> Self {
+
+pub(crate) struct PrivateWrapper<'a, S: AsRef<[u8]>>(pub(crate) &'a AcceptedStatus<S>);
+impl<'a, S: AsRef<[u8]>> From<PrivateWrapper<'a, S>> for UnsuccessfulAcceptStatus {
+    fn from(value: PrivateWrapper<'a, S>) -> Self {
+        let value = value.0;
         match value {
             AcceptedStatus::Success(_) => unreachable!(),
             AcceptedStatus::ProgramUnavailable => UnsuccessfulAcceptStatus::ProgramUnavailable,
@@ -72,26 +75,10 @@ impl<S: AsRef<[u8]>> From<&AcceptedStatus<S>> for UnsuccessfulAcceptStatus {
 
 #[derive(Error, Debug)]
 pub enum RejectedReply {
+    #[error("The RPC version was not serviceable, supported version: {low}-{high}")]
     RpcVersionMismatch { low: u32, high: u32 },
+    #[error("The authentication credentials included in the request (if any) were rejected: {0}")]
     AuthError(String),
-}
-
-impl std::fmt::Display for RejectedReply {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use RejectedReply::*;
-        match self {
-            RpcVersionMismatch { low, high } => write!(
-                f,
-                "The RPC version was not serviceable, supported version: {}-{}",
-                *low, *high
-            ),
-            AuthError(s) => write!(
-                f,
-                "The authentication credentials included in the request (if any) were rejected: {}",
-                s
-            ),
-        }
-    }
 }
 
 impl From<&onc_rpc::RejectedReply> for RejectedReply {

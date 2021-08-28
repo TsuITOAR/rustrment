@@ -11,5 +11,5 @@ pub enum ScpiError {
     #[error("query error")]
     QueryError,
     #[error("protocol error: {0}")]
-    ProtocolError(#[from] crate::protocols::error::ProtocolError),
+    ProtocolError(#[from] crate::protocols::protocol_error::ProtocolError),
 }

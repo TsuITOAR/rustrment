@@ -1,4 +1,4 @@
-pub mod error;
+pub mod oncrpc_error;
 pub mod port_mapper;
 pub mod vxi11;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -9,7 +9,7 @@ use std::{
     net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
     time::Duration,
 };
-type Result<T> = std::result::Result<T, error::OncRpcError>;
+type Result<T> = std::result::Result<T, oncrpc_error::OncRpcError>;
 include!(concat!(env!("OUT_DIR"), r#"/xdr.rs"#));
 
 pub enum IpProtocol {
@@ -224,7 +224,7 @@ where
     S: RpcBroadcast + RpcProgram + ?Sized,
     <S as RpcProgram>::IO: RpcSocket,
     R: TryFrom<Bytes>,
-    error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
+    oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
 {
     {
         let buf = s.buffer();
@@ -239,12 +239,15 @@ where
                 ReplyBody::Accepted(a) => match a.status() {
                     onc_rpc::AcceptedStatus::Success(p) => Ok((p.clone().try_into()?, addr)),
 
-                    u => Err(error::UnsuccessfulAcceptStatus::from(u).into()),
+                    u => Err(
+                        oncrpc_error::UnsuccessfulAcceptStatus::from(oncrpc_error::PrivateWrapper(u))
+                            .into(),
+                    ),
                 },
-                ReplyBody::Denied(d) => Err(error::RejectedReply::from(d).into()),
+                ReplyBody::Denied(d) => Err(oncrpc_error::RejectedReply::from(d).into()),
             }
         } else {
-            Err(error::OncRpcError::XidUnmatched(xid, reply.xid()))
+            Err(oncrpc_error::OncRpcError::XidUnmatched(xid, reply.xid()))
         }
     }
 }
@@ -274,13 +277,13 @@ pub trait Rpc {
         T: AsRef<[u8]>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
     fn call_anonymously<P, C, R>(&mut self, procedure: P, content: C) -> Result<R>
     where
         P: Into<u32>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         self.call::<P, &[u8], C, R>(
             procedure,
@@ -306,7 +309,7 @@ pub trait RpcBroadcast {
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
     fn broadcast_anonymously<'a, P, C, A, R>(
         &'a mut self,
         procedure: P,
@@ -318,7 +321,7 @@ pub trait RpcBroadcast {
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         self.broadcast::<P, &[u8], C, A, R>(
             procedure,
@@ -347,7 +350,7 @@ where
         T: AsRef<[u8]>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         let xid = self.gen_xid();
         let content = serde_xdr::to_bytes(&content)?;
@@ -364,18 +367,21 @@ where
         let buf = self.buffer();
         let reply = self.mut_io().read(buf)?;
         if reply.xid() == xid {
-            match reply.reply_body().ok_or(error::OncRpcError::Other(
+            match reply.reply_body().ok_or(oncrpc_error::OncRpcError::Other(
                 "expected reply, found call".to_string(),
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
                     onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone().try_into()?),
 
-                    u => Err(error::UnsuccessfulAcceptStatus::from(u).into()),
+                    u => Err(
+                        oncrpc_error::UnsuccessfulAcceptStatus::from(oncrpc_error::PrivateWrapper(u))
+                            .into(),
+                    ),
                 },
-                ReplyBody::Denied(d) => Err(error::RejectedReply::from(d).into()),
+                ReplyBody::Denied(d) => Err(oncrpc_error::RejectedReply::from(d).into()),
             }
         } else {
-            Err(error::OncRpcError::XidUnmatched(xid, reply.xid()))
+            Err(oncrpc_error::OncRpcError::XidUnmatched(xid, reply.xid()))
         }
     }
 }
@@ -398,7 +404,7 @@ where
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
+        oncrpc_error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         let xid = self.gen_xid();
         let addr = addr

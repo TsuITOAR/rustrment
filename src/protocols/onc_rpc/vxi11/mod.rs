@@ -17,9 +17,9 @@ use super::{
 };
 pub mod abort;
 pub mod core;
-pub mod error;
+pub mod vxi11_error;
 pub mod interrupt;
-type Result<T> = std::result::Result<T, error::Vxi11Error>;
+type Result<T> = std::result::Result<T, vxi11_error::Vxi11Error>;
 const VERSION: u32 = 1;
 
 fn error_to_i32(l: xdr::Device_ErrorCode) -> i32 {
@@ -119,21 +119,21 @@ impl From<ErrorCode> for Result<()> {
 
         Err(match e {
             NoError => return Ok(()),
-            SyntaxError => error::Vxi11Error::SyntaxError,
-            NotAccessible => error::Vxi11Error::NotAccessible,
-            InvalidIdentifier => error::Vxi11Error::InvalidIdentifier,
-            ParameterError => error::Vxi11Error::ParameterError,
-            NotEstablished => error::Vxi11Error::NotEstablished,
-            NotSupported => error::Vxi11Error::NotSupported,
-            OutOfResources => error::Vxi11Error::OutOfResources,
-            LockedByAnother => error::Vxi11Error::LockedByAnother,
-            NoLockHeld => error::Vxi11Error::NoLockHeld,
-            IOTimeOut => error::Vxi11Error::IOTimeOut,
-            IOError => error::Vxi11Error::IOError,
-            InvalidAddress => error::Vxi11Error::InvalidAddress,
-            Abort => error::Vxi11Error::Abort,
-            AlreadyEstablished => error::Vxi11Error::AlreadyEstablished,
-            Unknown(n) => error::Vxi11Error::Vxi11Unknown(n),
+            SyntaxError => vxi11_error::Vxi11Error::SyntaxError,
+            NotAccessible => vxi11_error::Vxi11Error::NotAccessible,
+            InvalidIdentifier => vxi11_error::Vxi11Error::InvalidIdentifier,
+            ParameterError => vxi11_error::Vxi11Error::ParameterError,
+            NotEstablished => vxi11_error::Vxi11Error::NotEstablished,
+            NotSupported => vxi11_error::Vxi11Error::NotSupported,
+            OutOfResources => vxi11_error::Vxi11Error::OutOfResources,
+            LockedByAnother => vxi11_error::Vxi11Error::LockedByAnother,
+            NoLockHeld => vxi11_error::Vxi11Error::NoLockHeld,
+            IOTimeOut => vxi11_error::Vxi11Error::IOTimeOut,
+            IOError => vxi11_error::Vxi11Error::IOError,
+            InvalidAddress => vxi11_error::Vxi11Error::InvalidAddress,
+            Abort => vxi11_error::Vxi11Error::Abort,
+            AlreadyEstablished => vxi11_error::Vxi11Error::AlreadyEstablished,
+            Unknown(n) => vxi11_error::Vxi11Error::Vxi11Unknown(n),
         })
     }
 }
@@ -356,7 +356,7 @@ impl Vxi11 {
     pub fn device_abort(&mut self) -> Result<()> {
         match self.abort {
             Some(ref mut c) => c.device_abort(self.link_id),
-            None => Err(error::Vxi11Error::NotEstablished),
+            None => Err(vxi11_error::Vxi11Error::NotEstablished),
         }
     }
     pub fn establish_interrupt<A: ToSocketAddrs>(

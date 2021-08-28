@@ -32,7 +32,11 @@ impl Protocol for Serial {
     type Address = u8;
     type Error = serial::Error;
     type IO = SystemPort;
-    fn connect(self, address: Self::Address) -> Result<Self::IO, Self::Error> {
+    fn connect(
+        self,
+        address: Self::Address,
+        _time_out: std::time::Duration,
+    ) -> Result<Self::IO, Self::Error> {
         let mut port = serial::open(&Self::format_address(address))?;
         crate::config_serial(&mut port, self)?;
         Ok(port)

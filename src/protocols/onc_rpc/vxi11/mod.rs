@@ -399,9 +399,13 @@ impl crate::Protocol for Vxi11Client {
     type Address = IpAddr;
     type Error = std::io::Error;
     type IO = Vxi11;
-    fn connect(self, address: Self::Address) -> std::result::Result<Self::IO, Self::Error> {
+    fn connect(
+        self,
+        address: Self::Address,
+        time_out: Duration,
+    ) -> std::result::Result<Self::IO, Self::Error> {
         let mut port_mapper =
-            PortMapper::new_tcp(SocketAddr::new(address, port_mapper::PORT), self.io_timeout)?;
+            PortMapper::new_tcp(SocketAddr::new(address, port_mapper::PORT), time_out)?;
         let core_port = port_mapper.get_port(
             <Core<TcpStream> as RpcProgram>::PROGRAM,
             <Core<TcpStream> as RpcProgram>::VERSION,

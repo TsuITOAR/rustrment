@@ -3,6 +3,7 @@ use std::{
     error::Error,
     io::{BufRead, Read, Write},
     net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
+    time::Duration,
 };
 
 use rustrument::{
@@ -32,6 +33,8 @@ fn get_local_ip() -> Option<IpAddr> {
         Err(_) => return None,
     };
 }
+
+const TIME_OUT: std::time::Duration = Duration::from_secs(1);
 fn main() -> Result<(), Box<dyn Error>> {
     test_vxi11_connect("192.168.3.96".parse()?)?;
     Ok(())
@@ -39,17 +42,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {
     let mut client = Vxi11Client::default();
     client.lock = false;
+    client.io_timeout=Duration::from_secs(2);
     client.flags = DeviceFlags::new_zero();
-    let mut connect = client.connect(addr)?;
-    connect.device_write("*IDN?\n")?;
-    let mess = connect.device_read_str()?;
-    println!("{}", mess);
-    connect.device_trigger()?;
+    let mut connect = client.connect(addr, TIME_OUT*5)?;
+    connect.device_write(":SYSTem:DSP \"Hello World\"\n")?;
+    //let mess = connect.device_read_str()?;
+    //println!("{}", mess); 
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
     use rustrument::protocols::onc_rpc::port_mapper::*;
-    use std::time::Duration;
+    let remote_addr = remote_addr.to_socket_addrs()?.next().unwrap();
     let dur = Duration::from_secs(1);
     let local_ip = get_local_ip().ok_or("error getting local ip address")?;
     let port = 12902;
@@ -147,8 +150,9 @@ fn test_osc() -> Result<(), Box<dyn Error>> {
 
 fn test_osc_rigol() -> Result<(), Box<dyn Error>> {
     let m = Tcp::default();
-    let mut mess =
-        std::io::BufReader::new(Messenger::new(m.connect("169.254.120.131:5555".parse()?)?));
+    let mut mess = std::io::BufReader::new(Messenger::new(
+        m.connect("169.254.120.131:5555".parse()?, TIME_OUT)?,
+    ));
     println!("connect success");
     mess.get_mut().write(":WAVeform:FORMat ASCii\n".as_ref())?;
     mess.get_mut().write(":WAVeform:MODE MAXimum\n".as_ref())?;
@@ -171,7 +175,9 @@ fn test_osc_rigol() -> Result<(), Box<dyn Error>> {
 
 fn test_awg_rigol() -> Result<(), Box<dyn Error>> {
     let m = Tcp;
-    let mut mess = std::io::BufReader::new(Messenger::new(m.connect("192.168.3.94:111".parse()?)?));
+    let mut mess = std::io::BufReader::new(Messenger::new(
+        m.connect("192.168.3.94:111".parse()?, TIME_OUT)?,
+    ));
     println!("connect success");
 
     let mut buf = [0_u8; 4];

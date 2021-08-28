@@ -1,7 +1,7 @@
 use instruments::{mdt693_b::MDT693B, Instrument, Messenger, Model};
 use protocols::{Protocol, Serial};
 use serial::SerialPort;
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, time::Duration};
 
 pub mod instruments;
 pub mod protocols;
@@ -9,11 +9,12 @@ pub mod protocols;
 extern crate serde;
 pub trait DefaultConfig: Model + Sized + Default {
     type DefaultProtocol: Protocol;
+    const TIME_OUT: Duration = Duration::from_secs(1);
     const DEFAULT_PROTOCOL: Self::DefaultProtocol;
     fn default_connect(
         address: <Self::DefaultProtocol as Protocol>::Address,
     ) -> instruments::Bound<Self::DefaultProtocol, Self> {
-        let messenger = Messenger::new(Self::DEFAULT_PROTOCOL.connect(address)?);
+        let messenger = Messenger::new(Self::DEFAULT_PROTOCOL.connect(address, Self::TIME_OUT)?);
         Ok(messenger.bind(Self::default()))
     }
 }

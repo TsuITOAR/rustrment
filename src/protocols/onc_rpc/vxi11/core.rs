@@ -152,7 +152,7 @@ impl Core<TcpStream> {
                 io_timeout: xdr::ulong(io_timeout),
                 lock_timeout: xdr::ulong(lock_timeout),
                 flags: flags.into(),
-                data: serde_bytes::Bytes::new(data.as_ref()),
+                data: unsafe { std::str::from_utf8_unchecked(data.as_ref()) },
             },
         )?;
         Result::from(ErrorCode::from(resp.error))?;
@@ -357,7 +357,7 @@ impl Core<TcpStream> {
             xdr::Device_EnableSrqParms {
                 lid: xdr::Device_Link(xdr::long(link_id)),
                 enable,
-                handle: serde_bytes::Bytes::new(handle.as_ref()), //Store handle<40> so it can be passed back to the network instrument client in a device_intr_srq RPC when a service request occurs.
+                handle: unsafe { std::str::from_utf8_unchecked(handle.as_ref()) }, //Store handle<40> so it can be passed back to the network instrument client in a device_intr_srq RPC when a service request occurs.
             },
         )?;
         Result::from(ErrorCode::from(resp))
@@ -386,7 +386,7 @@ impl Core<TcpStream> {
                 indicates the size of individual data elements A value of one(1) in datasize means byte data and no swapping is performed. A value of two(2) in datasize means 16-bit word data and bytes are swapped on word boundaries. A value of four(4) in datasize means 32-bit longword data and bytes are swapped on longword boundaries. A value of eight(8) in datasize means 64-bit data and bytes are swapped on 8-byte boundaries.
                 */
                 datasize: xdr::long(data_size),
-                data_in: serde_bytes::Bytes::new(data_in.as_ref()),
+                data_in: unsafe { std::str::from_utf8_unchecked(data_in.as_ref()) },
             },
         )?;
         Result::from(ErrorCode::from(resp.error))?;

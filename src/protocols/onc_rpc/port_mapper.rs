@@ -43,11 +43,14 @@ impl<S> RpcProgram for PortMapper<S> {
     }
 }
 impl PortMapper<TcpStream> {
-    pub fn new_tcp<A: ToSocketAddrs, D: Into<Option<Duration>>>(
-        addr: A,
+    pub fn new_tcp<D: Into<Option<Duration>> + Clone>(
+        addr: SocketAddr,
         dur: D,
     ) -> Result<PortMapper<TcpStream>> {
-        let io = TcpStream::connect(addr)?;
+        let io = TcpStream::connect_timeout(
+            &addr,
+            dur.clone().into().unwrap_or(Duration::from_secs(1)),
+        )?;
         io.set_read_timeout(dur.into())?;
         Ok(PortMapper {
             io,

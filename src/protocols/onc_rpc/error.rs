@@ -40,23 +40,16 @@ impl From<Infallible> for OncRpcError {
 
 #[derive(Error, Debug)]
 pub enum UnsuccessfulAcceptStatus {
+    #[error("The specified program number has no handler in this server.")]
     ProgramUnavailable,
+    #[error("The program to invoke was found, but it doesn’t support the requested version, supported version: {low}-{high}.")]
     ProgramMismatch { low: u32, high: u32 },
+    #[error("The program to invoke was found, but the procedure number is not recognized.")]
     ProcedureUnavailable,
+    #[error("The arguments provided to the RPC endpoint were not serialized correctly, or otherwise unacceptable.")]
     GarbageArgs,
+    #[error("The server experienced an internal error.")]
     SystemError,
-}
-impl std::fmt::Display for UnsuccessfulAcceptStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use UnsuccessfulAcceptStatus::*;
-        match self{
-            ProgramUnavailable=>write!(f, "{}", "The specified program number has no handler in this server."),
-            ProgramMismatch{low,high}=>write!(f,"The program to invoke was found, but it doesn’t support the requested version, supported version: {}-{}",*low,*high),
-            ProcedureUnavailable=>write!(f,"The program to invoke was found, but the procedure number is not recognized."),
-            GarbageArgs=>write!(f,"The arguments provided to the RPC endpoint were not serialized correctly, or otherwise unacceptable."),
-            SystemError=>write!(f,"The server experienced an internal error."),
-        }
-    }
 }
 impl<S: AsRef<[u8]>> From<&AcceptedStatus<S>> for UnsuccessfulAcceptStatus {
     fn from(value: &AcceptedStatus<S>) -> Self {

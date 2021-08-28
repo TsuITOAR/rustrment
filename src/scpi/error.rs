@@ -2,20 +2,14 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ScpiError {
+    #[error("command error")]
     CommandError,
+    #[error("execution error")]
     ExecutionError,
+    #[error("device-dependent error")]
     DevDependError,
+    #[error("query error")]
     QueryError,
-}
-
-impl std::fmt::Display for ScpiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use ScpiError::*;
-        match self {
-            CommandError => write!(f, "command error"),
-            ExecutionError => write!(f, "execution error"),
-            DevDependError => write!(f, "device-dependent error"),
-            QueryError => write!(f, "query error"),
-        }
-    }
+    #[error("protocol error: {0}")]
+    ProtocolError(#[from] crate::protocols::error::ProtocolError),
 }

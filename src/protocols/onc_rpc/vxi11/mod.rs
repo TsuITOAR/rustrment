@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use bytes::{buf::Reader, Buf, Bytes};
+use bytes::Bytes;
 use serde::Serialize;
 
 use crate::protocols::onc_rpc::RpcProgram;
@@ -235,7 +235,6 @@ pub struct Vxi11 {
     core: Core<TcpStream>,
     abort: Option<Abort<TcpStream>>,
     interrupt: Option<Interrupt<TcpStream>>,
-    data_to_read: Option<Reader<Bytes>>,
 }
 
 impl Vxi11 {
@@ -277,7 +276,6 @@ impl Vxi11 {
             max_recv_size,
             req_size: REQ_SIZE,
             term: TERM,
-            data_to_read: None,
             flags: DeviceFlags::new_zero().terminator_set(),
         })
     }

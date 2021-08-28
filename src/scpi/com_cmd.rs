@@ -1,0 +1,15 @@
+pub const CLS: &str = "*CLS";
+pub const ESE: &str = "*ESE";
+pub const ESR: &str = "*ESR";
+pub const IDN: &str = "*IDN";
+pub const OPC: &str = "*OPC";
+pub const OPT: &str = "*OPT";
+pub const PSC: &str = "*PSC";
+pub const RCL: &str = "*RCL";
+pub const RST: &str = "*RST";
+pub const SAV: &str = "*SAV";
+pub const SRE: &str = "*SRE";
+pub const STB: &str = "*STB";
+pub const TRG: &str = "*TRG";
+pub const TST: &str = "*TST";
+pub const WAI: &str = "*WAI";

@@ -1,6 +1,6 @@
-use super::{xdr, ErrorCode};
+use super::{xdr, ErrorCode, Result};
 use bytes::BytesMut;
-use std::{io::Result, net::TcpStream};
+use std::net::TcpStream;
 
 use crate::protocols::onc_rpc::{Rpc, RpcProgram};
 

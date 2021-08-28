@@ -1,6 +1,6 @@
 pub mod infiniium;
 pub mod mdt693_b;
-pub mod scpi;
+
 use crate::protocols::Protocol;
 use core::str;
 use std::{
@@ -111,20 +111,7 @@ impl<IO: Write + Read, M: Model> Instrument<IO, M> {
         self.messenger.read_until(M::END_BYTE, &mut self.buf)?;
         Ok(&self.buf)
     }
-    pub fn scpi_command<C: Into<scpi::Command>>(&mut self, command: C) -> Result<(), Error>
-    where
-        Self: scpi::SCPI,
-    {
-        self.send_raw(command.into().to_bytes())?;
-        Ok(())
-    }
-    pub fn scpi_query<Q: Into<scpi::Query>>(&mut self, query: Q) -> Result<&[u8], Error>
-    where
-        Self: scpi::SCPI,
-    {
-        self.send_raw(query.into().to_bytes())?;
-        self.read_until(M::END_BYTE)
-    }
+    
     pub fn send_raw<S: AsRef<[u8]>>(&mut self, raw: S) -> Result<(), Error> {
         self.write(raw.as_ref())?;
         self.terminate_send()?;

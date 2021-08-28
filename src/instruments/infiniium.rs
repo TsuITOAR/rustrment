@@ -16,7 +16,6 @@ impl Model for Infiniium {
     const TERMINATOR: u8 = b'\n';
 }
 
-impl super::scpi::SCPI for Infiniium {}
 
 
 pub enum Command {

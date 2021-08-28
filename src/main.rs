@@ -40,14 +40,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {
-    let mut client = Vxi11Client::default();
-    client.lock = false;
-    client.io_timeout=Duration::from_secs(2);
-    client.flags = DeviceFlags::new_zero();
-    let mut connect = client.connect(addr, TIME_OUT*5)?;
-    connect.device_write(":SYSTem:DSP \"Hello World\"\n")?;
-    //let mess = connect.device_read_str()?;
-    //println!("{}", mess); 
+    let mut client_osc = Vxi11Client::default();
+    client_osc.lock = false;
+    client_osc.flags = DeviceFlags::new_zero();
+    let mut osc = client_osc.connect(addr, TIME_OUT * 5)?;
+    osc.device_write_str(":SYSTem:DSP \"Hello World\"\n")?;
+    osc.device_write_str(":SINGle")?;
+    let mut client_awg = Vxi11Client::default();
+    client_awg.lock = false;
+    client_awg.flags = DeviceFlags::new_zero();
+    let mut awg = client_awg.connect("192.168.3.133".parse()?, TIME_OUT * 5)?;
+    awg.device_write_str("*TRG")?;
     Ok(())
 }
 fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<dyn Error>> {
@@ -74,7 +77,6 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
 
     {
         let mut broad_caster = PortMapper::new_broadcaster(local_addr, dur)?;
-        use std::io::ErrorKind;
         {
             let mut port_stream = broad_caster.collet_tcp_port(prog, vers, "224.0.0.1:111")?;
             loop {
@@ -82,7 +84,7 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
                     Some(s) => match s {
                         Ok((p, a)) => println!("got reply {:0>5} from {}", p, a.to_string()),
                         Err(e) => {
-                            if e.kind() == ErrorKind::TimedOut {
+                            if e.is_timeout() {
                                 break;
                             } else {
                                 return Err(e.into());
@@ -100,7 +102,7 @@ fn test_port_mapper<B: ToSocketAddrs + Clone>(remote_addr: B) -> Result<(), Box<
                     Some(s) => match s {
                         Ok((p, a)) => println!("got reply {:0>5} from {}", p, a.to_string()),
                         Err(e) => {
-                            if e.kind() == ErrorKind::TimedOut {
+                            if e.is_timeout() {
                                 break;
                             } else {
                                 return Err(e.into());

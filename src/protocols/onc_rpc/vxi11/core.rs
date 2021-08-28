@@ -1,12 +1,11 @@
+use super::Result;
+use crate::protocols::onc_rpc::{IpProtocol, Rpc, RpcProgram};
 use bytes::{Bytes, BytesMut};
 use serde::Serialize;
 use std::{
     fmt::Debug,
-    io::Result,
     net::{IpAddr, TcpStream, ToSocketAddrs},
 };
-
-use crate::protocols::onc_rpc::{IpProtocol, Rpc, RpcProgram};
 
 use super::{xdr, DeviceFlags, ErrorCode};
 pub enum Procedure {
@@ -189,10 +188,7 @@ impl Core<TcpStream> {
             //TO-DO: terminator transferred
             return Ok(resp.data);
         } else if reason == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "device output buffer full",
-            ));
+            return Err(super::error::Vxi11Error::DevOutputBufFull);
         } else {
             unreachable!()
         }

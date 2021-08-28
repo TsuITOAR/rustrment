@@ -1,8 +1,6 @@
-use super::xdr::*;
-use super::{IpProtocol, Rpc, RpcBroadcast, RpcProgram, RpcSocket, RpcStream};
+use super::{xdr::*, IpProtocol, Result, Rpc, RpcBroadcast, RpcProgram, RpcSocket, RpcStream};
 use bytes::{Buf, BytesMut};
 use std::{
-    io::Result,
     net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
     time::Duration,
 };

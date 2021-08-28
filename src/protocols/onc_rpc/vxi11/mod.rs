@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    io::Result,
     net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     time::Duration,
 };
@@ -18,8 +17,9 @@ use super::{
 };
 pub mod abort;
 pub mod core;
+pub mod error;
 pub mod interrupt;
-
+type Result<T> = std::result::Result<T, error::Vxi11Error>;
 const VERSION: u32 = 1;
 
 fn error_to_i32(l: xdr::Device_ErrorCode) -> i32 {
@@ -28,7 +28,7 @@ fn error_to_i32(l: xdr::Device_ErrorCode) -> i32 {
 pub enum ErrorCode {
     ///No error
     NoError,
-    ///Syntax error
+    ///syntax error
     SyntaxError,
     ///device not accessible
     NotAccessible,
@@ -56,7 +56,7 @@ pub enum ErrorCode {
     Abort,
     ///channel already established
     AlreadyEstablished,
-    ///Unknown error code
+    ///unknown error code
     Unknown(i32),
 }
 impl ToString for ErrorCode {
@@ -113,14 +113,28 @@ impl From<xdr::Device_Error> for ErrorCode {
         Self::from(e.error)
     }
 }
-impl From<ErrorCode> for std::io::Result<()> {
+impl From<ErrorCode> for Result<()> {
     fn from(e: ErrorCode) -> Self {
-        use std::io::{Error, ErrorKind};
         use ErrorCode::*;
-        match e {
-            NoError => Ok(()),
-            other => Err(Error::new(ErrorKind::Other, other.to_string())),
-        }
+
+        Err(match e {
+            NoError => return Ok(()),
+            SyntaxError => error::Vxi11Error::SyntaxError,
+            NotAccessible => error::Vxi11Error::NotAccessible,
+            InvalidIdentifier => error::Vxi11Error::InvalidIdentifier,
+            ParameterError => error::Vxi11Error::ParameterError,
+            NotEstablished => error::Vxi11Error::NotEstablished,
+            NotSupported => error::Vxi11Error::NotSupported,
+            OutOfResources => error::Vxi11Error::OutOfResources,
+            LockedByAnother => error::Vxi11Error::LockedByAnother,
+            NoLockHeld => error::Vxi11Error::NoLockHeld,
+            IOTimeOut => error::Vxi11Error::IOTimeOut,
+            IOError => error::Vxi11Error::IOError,
+            InvalidAddress => error::Vxi11Error::InvalidAddress,
+            Abort => error::Vxi11Error::Abort,
+            AlreadyEstablished => error::Vxi11Error::AlreadyEstablished,
+            Unknown(n) => error::Vxi11Error::Vxi11Unknown(n),
+        })
     }
 }
 
@@ -344,10 +358,7 @@ impl Vxi11 {
     pub fn device_abort(&mut self) -> Result<()> {
         match self.abort {
             Some(ref mut c) => c.device_abort(self.link_id),
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "abort core not established",
-            )),
+            None => Err(error::Vxi11Error::NotEstablished),
         }
     }
     pub fn establish_interrupt<A: ToSocketAddrs>(
@@ -373,37 +384,9 @@ impl Vxi11 {
             .device_trigger(self.link_id, self.flags, self.lock_timeout, self.io_timeout)
     }
 }
-impl std::io::Read for Vxi11 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let mut reader = match self.data_to_read.take() {
-            None => self.device_read()?.reader(),
-            Some(r) => r,
-        };
-        let len = reader.read(buf)?;
-        if reader.get_ref().has_remaining() {
-            self.data_to_read = Some(reader);
-        }
-        Ok(len)
-    }
-}
 
-impl std::io::Write for Vxi11 {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.device_write(buf)
-    }
-    fn flush(&mut self) -> Result<()> {
-        self.mut_core().get_io().flush()
-    }
-}
-impl crate::Protocol for Vxi11Client {
-    type Address = IpAddr;
-    type Error = std::io::Error;
-    type IO = Vxi11;
-    fn connect(
-        self,
-        address: Self::Address,
-        time_out: Duration,
-    ) -> std::result::Result<Self::IO, Self::Error> {
+impl Vxi11Client {
+    pub fn connect(self, address: IpAddr, time_out: Duration) -> Result<Vxi11> {
         let mut port_mapper =
             PortMapper::new_tcp(SocketAddr::new(address, port_mapper::PORT), time_out)?;
         let core_port = port_mapper.get_port(

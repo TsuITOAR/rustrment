@@ -1,3 +1,4 @@
+pub mod error;
 pub mod onc_rpc;
 pub mod serial;
 pub mod tcp;

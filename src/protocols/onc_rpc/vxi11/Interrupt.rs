@@ -1,7 +1,7 @@
+use super::Result;
 use crate::protocols::onc_rpc::{RpcProgram, RpcStream};
 
 use bytes::{Bytes, BytesMut};
-use std::io::Result;
 pub enum Procedure {
     ///used by device to send a service request
     DeviceIntrSrq,

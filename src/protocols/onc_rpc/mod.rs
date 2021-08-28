@@ -1,3 +1,4 @@
+pub mod error;
 pub mod port_mapper;
 pub mod vxi11;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -5,11 +6,10 @@ use onc_rpc::{auth::AuthFlavor, CallBody, MessageType, ReplyBody, RpcMessage};
 use serde::Serialize;
 use std::{
     convert::{TryFrom, TryInto},
-    io::{Error, ErrorKind, Result},
     net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},
     time::Duration,
 };
-
+type Result<T> = std::result::Result<T, error::OncRpcError>;
 include!(concat!(env!("OUT_DIR"), r#"/xdr.rs"#));
 
 pub enum IpProtocol {
@@ -24,20 +24,21 @@ fn parse_bytes(bytes: Bytes) -> Result<RpcMessage<Bytes, Bytes>> {
         Err(onc_rpc::Error::IncompleteHeader) | Err(onc_rpc::Error::IncompleteMessage { .. }) => {
             unreachable!()
         }
-        Err(e) => Err(Error::new(ErrorKind::InvalidData, e)),
+        Err(e) => Err(e.into()),
     }
 }
 pub trait RpcStream {
-    fn raw_write(&mut self, buf: &[u8]) -> Result<usize>;
-    fn raw_read(&mut self, buf: &mut [u8]) -> Result<usize>;
-    fn flush(&mut self) -> Result<()>;
+    fn raw_write(&mut self, buf: &[u8]) -> std::io::Result<usize>;
+    fn raw_read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
+    fn flush(&mut self) -> std::io::Result<()>;
     fn send<T, P>(&mut self, message: RpcMessage<T, P>) -> Result<()>
     where
         T: AsRef<[u8]>,
         P: AsRef<[u8]>,
     {
         raw_write_all(self, &message.serialise()?)?;
-        self.flush()
+        self.flush()?;
+        Ok(())
     }
 
     fn read(&mut self, buf: BytesMut) -> Result<RpcMessage<Bytes, Bytes>> {
@@ -50,7 +51,7 @@ pub trait RpcStream {
                 match onc_rpc::expected_message_len(buf_cursor.as_ref()) {
                     Ok(len) => break len as usize,
                     Err(onc_rpc::Error::IncompleteHeader) => continue,
-                    Err(e) => return Err(Error::new(ErrorKind::InvalidData, e)),
+                    Err(e) => return Err(e.into()),
                 };
             };
             if expected_len > buf_cursor.filled {
@@ -73,8 +74,8 @@ pub trait RpcStream {
 
 const UDP_BUFFER_LEN: usize = 256;
 pub trait RpcSocket {
-    fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize>;
-    fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)>;
+    fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> std::io::Result<usize>;
+    fn raw_recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)>;
     fn send_to<A: ToSocketAddrs, T: AsRef<[u8]>, P: AsRef<[u8]>>(
         &self,
         message: RpcMessage<T, P>,
@@ -85,23 +86,25 @@ pub trait RpcSocket {
         if !buf.is_empty() {
             match self.raw_send_to(&buf, addr) {
                 Ok(0) => {
-                    return Err(Error::new(
-                        ErrorKind::WriteZero,
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::WriteZero,
                         "failed to write whole buffer",
-                    ));
+                    )
+                    .into());
                 }
                 Ok(n) if n == buf.len() => return Ok(()),
                 Ok(n) => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
                         format!(
                             "only {} byte(s) message sent, expected {} bytes",
                             n,
                             buf.len()
                         ),
-                    ))
+                    )
+                    .into())
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(())
@@ -137,14 +140,15 @@ fn raw_write_all<S: RpcStream + ?Sized>(s: &mut S, buf: &[u8]) -> Result<()> {
     while !buf.is_empty() {
         match s.raw_write(buf) {
             Ok(0) => {
-                return Err(Error::new(
-                    ErrorKind::WriteZero,
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
                     "failed to write whole buffer",
-                ));
+                )
+                .into());
             }
             Ok(n) => buf = &buf[n..],
-            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e.into()),
         }
     }
     Ok(())
@@ -158,15 +162,16 @@ fn raw_read_exact<S: RpcStream + ?Sized>(s: &mut S, mut buf: &mut [u8]) -> Resul
                 let tmp = buf;
                 buf = &mut tmp[n..];
             }
-            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e.into()),
         }
     }
     if !buf.is_empty() {
-        Err(Error::new(
-            ErrorKind::UnexpectedEof,
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
             "failed to fill whole buffer",
-        ))
+        )
+        .into())
     } else {
         Ok(())
     }
@@ -219,7 +224,7 @@ where
     S: RpcBroadcast + RpcProgram + ?Sized,
     <S as RpcProgram>::IO: RpcSocket,
     R: TryFrom<Bytes>,
-    <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+    error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
 {
     {
         let buf = s.buffer();
@@ -227,56 +232,19 @@ where
             (r, addr) => (r, addr),
         };
         if reply.xid() == xid {
-            match reply.reply_body().ok_or(Error::new(
-                ErrorKind::InvalidInput,
+            match reply.reply_body().ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
                 "expected reply, found call",
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => Ok((
-                        p.clone()
-                            .try_into()
-                            .map_err(|err: <R as TryFrom<Bytes>>::Error| {
-                                Error::new(
-                                    ErrorKind::Other,
-                                    format!("err parsing data: {}", err.to_string()),
-                                )
-                            })?,
-                        addr,
-                    )),
+                    onc_rpc::AcceptedStatus::Success(p) => Ok((p.clone().try_into()?, addr)),
 
-                    onc_rpc::AcceptedStatus::ProgramUnavailable => {
-                        Err(Error::new(ErrorKind::Other, "program unavailable"))
-                    }
-                    onc_rpc::AcceptedStatus::ProgramMismatch { low, high } => Err(Error::new(
-                        ErrorKind::Other,
-                        format!("program mismatch, supported version {} - {}", low, high),
-                    )),
-                    onc_rpc::AcceptedStatus::ProcedureUnavailable => {
-                        Err(Error::new(ErrorKind::Other, "procedure unavailable"))
-                    }
-                    onc_rpc::AcceptedStatus::GarbageArgs => {
-                        Err(Error::new(ErrorKind::Other, "garbage args"))
-                    }
-                    onc_rpc::AcceptedStatus::SystemError => {
-                        Err(Error::new(ErrorKind::Other, "system error"))
-                    }
+                    u => Err(error::UnsuccessfulAcceptStatus::from(u).into()),
                 },
-                ReplyBody::Denied(d) => match d {
-                    onc_rpc::RejectedReply::RpcVersionMismatch { low, high } => Err(Error::new(
-                        ErrorKind::Other,
-                        format!("rpc version mismatch, supported version {} - {}", low, high),
-                    )),
-                    onc_rpc::RejectedReply::AuthError(a) => Err(Error::new(
-                        ErrorKind::PermissionDenied,
-                        format!("authentication failed, {:?}", a),
-                    )),
-                },
+                ReplyBody::Denied(d) => Err(error::RejectedReply::from(d).into()),
             }
         } else {
-            Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("unmatched xid, expected {}, got {}", xid, reply.xid(),),
-            ))
+            Err(error::OncRpcError::XidUnmatched(xid, reply.xid()))
         }
     }
 }
@@ -306,13 +274,13 @@ pub trait Rpc {
         T: AsRef<[u8]>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display;
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
     fn call_anonymously<P, C, R>(&mut self, procedure: P, content: C) -> Result<R>
     where
         P: Into<u32>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         self.call::<P, &[u8], C, R>(
             procedure,
@@ -338,7 +306,7 @@ pub trait RpcBroadcast {
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display;
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>;
     fn broadcast_anonymously<'a, P, C, A, R>(
         &'a mut self,
         procedure: P,
@@ -350,7 +318,7 @@ pub trait RpcBroadcast {
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         self.broadcast::<P, &[u8], C, A, R>(
             procedure,
@@ -379,10 +347,10 @@ where
         T: AsRef<[u8]>,
         C: Serialize,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         let xid = self.gen_xid();
-        let content = serde_xdr::to_bytes(&content).map_err(|x| Error::new(ErrorKind::Other, x))?;
+        let content = serde_xdr::to_bytes(&content)?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
@@ -396,56 +364,18 @@ where
         let buf = self.buffer();
         let reply = self.mut_io().read(buf)?;
         if reply.xid() == xid {
-            match reply.reply_body().ok_or(Error::new(
-                ErrorKind::InvalidInput,
-                "expected reply, found call",
+            match reply.reply_body().ok_or(error::OncRpcError::Other(
+                "expected reply, found call".to_string(),
             ))? {
                 ReplyBody::Accepted(a) => match a.status() {
-                    onc_rpc::AcceptedStatus::Success(p) => {
-                        (p.clone()
-                            .try_into()
-                            .map_err(|err: <R as TryFrom<Bytes>>::Error| {
-                                Error::new(
-                                    ErrorKind::Other,
-                                    format!("err parsing data: {}", err.to_string()),
-                                )
-                            }))
-                        .map_err(|e| Error::new(ErrorKind::Other, e))
-                    }
+                    onc_rpc::AcceptedStatus::Success(p) => Ok(p.clone().try_into()?),
 
-                    onc_rpc::AcceptedStatus::ProgramUnavailable => {
-                        Err(Error::new(ErrorKind::Other, "program unavailable"))
-                    }
-                    onc_rpc::AcceptedStatus::ProgramMismatch { low, high } => Err(Error::new(
-                        ErrorKind::Other,
-                        format!("program mismatch, supported version {} - {}", low, high),
-                    )),
-                    onc_rpc::AcceptedStatus::ProcedureUnavailable => {
-                        Err(Error::new(ErrorKind::Other, "procedure unavailable"))
-                    }
-                    onc_rpc::AcceptedStatus::GarbageArgs => {
-                        Err(Error::new(ErrorKind::Other, "garbage args"))
-                    }
-                    onc_rpc::AcceptedStatus::SystemError => {
-                        Err(Error::new(ErrorKind::Other, "system error"))
-                    }
+                    u => Err(error::UnsuccessfulAcceptStatus::from(u).into()),
                 },
-                ReplyBody::Denied(d) => match d {
-                    onc_rpc::RejectedReply::RpcVersionMismatch { low, high } => Err(Error::new(
-                        ErrorKind::Other,
-                        format!("rpc version mismatch, supported version {} - {}", low, high),
-                    )),
-                    onc_rpc::RejectedReply::AuthError(a) => Err(Error::new(
-                        ErrorKind::PermissionDenied,
-                        format!("authentication failed, {:?}", a),
-                    )),
-                },
+                ReplyBody::Denied(d) => Err(error::RejectedReply::from(d).into()),
             }
         } else {
-            Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("unmatched xid, expected {}, got {}", xid, reply.xid(),),
-            ))
+            Err(error::OncRpcError::XidUnmatched(xid, reply.xid()))
         }
     }
 }
@@ -468,14 +398,14 @@ where
         C: Serialize,
         A: ToSocketAddrs,
         R: TryFrom<Bytes>,
-        <R as TryFrom<bytes::Bytes>>::Error: std::fmt::Display,
+        error::OncRpcError: From<<R as TryFrom<bytes::Bytes>>::Error>,
     {
         let xid = self.gen_xid();
         let addr = addr
             .to_socket_addrs()?
             .next()
             .expect("invalid socket address");
-        let content = serde_xdr::to_bytes(&content).map_err(|x| Error::new(ErrorKind::Other, x))?;
+        let content = serde_xdr::to_bytes(&content)?;
         let call_body = CallBody::new(
             Self::PROGRAM,
             Self::VERSION,
@@ -493,58 +423,58 @@ where
 }
 
 impl RpcStream for TcpStream {
-    fn raw_read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        <Self as std::io::Read>::read(self, buf)
+    fn raw_read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(<Self as std::io::Read>::read(self, buf)?)
     }
-    fn raw_write(&mut self, buf: &[u8]) -> Result<usize> {
-        <Self as std::io::Write>::write(self, buf)
+    fn raw_write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(<Self as std::io::Write>::write(self, buf)?)
     }
-    fn flush(&mut self) -> Result<()> {
-        <Self as std::io::Write>::flush(self)
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(<Self as std::io::Write>::flush(self)?)
     }
     fn set_read_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        TcpStream::set_read_timeout(self, dur.into())
+        Ok(TcpStream::set_read_timeout(self, dur.into())?)
     }
     fn set_write_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        TcpStream::set_write_timeout(self, dur.into())
+        Ok(TcpStream::set_write_timeout(self, dur.into())?)
     }
 }
 impl RpcStream for UdpSocket {
-    fn raw_read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        UdpSocket::recv(self, buf)
+    fn raw_read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(UdpSocket::recv(self, buf)?)
     }
-    fn raw_write(&mut self, buf: &[u8]) -> Result<usize> {
-        UdpSocket::send(self, buf)
+    fn raw_write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(UdpSocket::send(self, buf)?)
     }
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
     fn send<T: AsRef<[u8]>, P: AsRef<[u8]>>(&mut self, message: RpcMessage<T, P>) -> Result<()> {
-        send_without_head(self, message)
+        Ok(send_without_head(self, message)?)
     }
     fn read(&mut self, buf: BytesMut) -> Result<RpcMessage<Bytes, Bytes>> {
-        recv_without_head(self, buf)
+        Ok(recv_without_head(self, buf)?)
     }
     fn set_read_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        UdpSocket::set_read_timeout(self, dur.into())
+        Ok(UdpSocket::set_read_timeout(self, dur.into())?)
     }
     fn set_write_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        UdpSocket::set_write_timeout(self, dur.into())
+        Ok(UdpSocket::set_write_timeout(self, dur.into())?)
     }
 }
 
 impl RpcSocket for UdpSocket {
-    fn raw_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
-        UdpSocket::recv_from(self, buf)
+    fn raw_recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+        Ok(UdpSocket::recv_from(self, buf)?)
     }
-    fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> Result<usize> {
-        UdpSocket::send_to(self, buf, addr)
+    fn raw_send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> std::io::Result<usize> {
+        Ok(UdpSocket::send_to(self, buf, addr)?)
     }
     fn set_read_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        UdpSocket::set_read_timeout(self, dur.into())
+        Ok(UdpSocket::set_read_timeout(self, dur.into())?)
     }
     fn set_write_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()> {
-        UdpSocket::set_write_timeout(self, dur.into())
+        Ok(UdpSocket::set_write_timeout(self, dur.into())?)
     }
 }
 
@@ -557,23 +487,25 @@ fn send_without_head<S: RpcStream, T: AsRef<[u8]>, P: AsRef<[u8]>>(
     if !buf.is_empty() {
         match s.raw_write(&buf) {
             Ok(0) => {
-                return Err(Error::new(
-                    ErrorKind::WriteZero,
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
                     "failed to write whole buffer",
-                ));
+                )
+                .into());
             }
             Ok(n) if n == buf.len() => return Ok(()),
             Ok(n) => {
-                return Err(Error::new(
-                    ErrorKind::Other,
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
                     format!(
                         "only {} byte(s) message sent, expected {} bytes",
                         n,
                         buf.len()
                     ),
-                ))
+                )
+                .into())
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         }
     }
     Ok(())

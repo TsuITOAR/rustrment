@@ -32,10 +32,6 @@ pub enum Vxi11Error {
     AlreadyEstablished,
     #[error("unknown vxi11 error code: '{0}'")]
     Vxi11Unknown(i32),
-    #[error("one-rpc error: {0}")]
-    OncRpcError(#[from] super::super::oncrpc_error::OncRpcError),
-    #[error("parse socket adderss error: {0}")]
-    InvalidSocketAddr(#[from] std::io::Error),
     #[error("device output buffer full")]
     DevOutputBufFull
 }

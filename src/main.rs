@@ -15,6 +15,7 @@ use rustrument::{
         },
         Protocol, Tcp,
     },
+    scpi::Scpi,
     DefaultConfig, PiezoController,
 };
 fn get_local_ip() -> Option<IpAddr> {
@@ -36,7 +37,36 @@ fn get_local_ip() -> Option<IpAddr> {
 
 const TIME_OUT: std::time::Duration = Duration::from_secs(1);
 fn main() -> Result<(), Box<dyn Error>> {
-    test_vxi11_connect("192.168.31.156".parse()?)?;
+    scpi_test("192.168.3.96".parse()?)?;
+    Ok(())
+}
+fn scpi_test(addr: IpAddr) -> Result<(), Box<dyn Error>> {
+    let mut client = Vxi11Client::default();
+    client.lock = false;
+    client.flags = DeviceFlags::new_zero();
+    let mut connect = client.connect(addr, TIME_OUT)?;
+    println!("set mask to 255");
+    connect.set_event_mask(255)?;
+    connect.set_service_mask(255)?;
+    println!("after connecting");
+    println!("{:?}", connect.get_status_byte()?);
+    println!("{:?}", connect.get_event_byte()?);
+    connect.scpi_send("*IDN?")?;
+    println!("after sending valid command without reading");
+    println!("{:?}", connect.get_status_byte()?);
+    println!("{:?}", connect.get_event_byte()?);
+    println!("{}", connect.scpi_query("*IDN?")?);
+    println!("after sending valid command and reading");
+    println!("{:?}", connect.get_status_byte()?);
+    println!("{:?}", connect.get_event_byte()?);
+    connect.scpi_send("s")?;
+    println!("after send invalid command");
+    println!("{:?}", connect.get_status_byte()?);
+    println!("{:?}", connect.get_event_byte()?);
+    connect.scpi_send(":SYSTem:DSP \"Hello World\"")?;
+    println!("after display a message");
+    println!("{:?}", connect.get_status_byte()?);
+    println!("{:?}", connect.get_event_byte()?);
     Ok(())
 }
 fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {

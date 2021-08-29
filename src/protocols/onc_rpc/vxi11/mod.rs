@@ -17,9 +17,9 @@ use super::{
 };
 pub mod abort;
 pub mod core;
-pub mod vxi11_error;
 pub mod interrupt;
-type Result<T> = std::result::Result<T, vxi11_error::Vxi11Error>;
+pub mod vxi11_error;
+use crate::Result;
 const VERSION: u32 = 1;
 
 fn error_to_i32(l: xdr::Device_ErrorCode) -> i32 {
@@ -134,7 +134,8 @@ impl From<ErrorCode> for Result<()> {
             Abort => vxi11_error::Vxi11Error::Abort,
             AlreadyEstablished => vxi11_error::Vxi11Error::AlreadyEstablished,
             Unknown(n) => vxi11_error::Vxi11Error::Vxi11Unknown(n),
-        })
+        }
+        .into())
     }
 }
 
@@ -356,7 +357,7 @@ impl Vxi11 {
     pub fn device_abort(&mut self) -> Result<()> {
         match self.abort {
             Some(ref mut c) => c.device_abort(self.link_id),
-            None => Err(vxi11_error::Vxi11Error::NotEstablished),
+            None => Err(vxi11_error::Vxi11Error::NotEstablished.into()),
         }
     }
     pub fn establish_interrupt<A: ToSocketAddrs>(

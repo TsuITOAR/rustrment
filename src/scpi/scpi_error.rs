@@ -10,6 +10,4 @@ pub enum ScpiError {
     DevDependError,
     #[error("query error")]
     QueryError,
-    #[error("protocol error: {0}")]
-    ProtocolError(#[from] crate::protocols::protocol_error::ProtocolError),
 }

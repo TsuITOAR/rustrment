@@ -1,13 +1,15 @@
+use error::other_error;
 use instruments::{mdt693_b::MDT693B, Instrument, Messenger, Model};
 use protocols::{Protocol, Serial};
 use serial::SerialPort;
 use std::{error::Error, fmt::Display, time::Duration};
 pub mod error;
-pub mod scpi;
 pub mod instruments;
 pub mod protocols;
+pub mod scpi;
 #[macro_use]
 extern crate serde;
+type Result<T> = std::result::Result<T, error::Error>;
 pub trait DefaultConfig: Model + Sized + Default {
     type DefaultProtocol: Protocol;
     const TIME_OUT: Duration = Duration::from_secs(1);
@@ -41,12 +43,12 @@ pub struct PiezoController {
 }
 
 impl PiezoController {
-    fn extract_num(message: &[u8]) -> Result<f32, Box<dyn Error>> {
+    fn extract_num(message: &[u8]) -> Result<f32> {
         Ok(std::str::from_utf8({
             let temp = message
                 .split(|x| *x == b'\n' || *x == b'\r')
                 .last()
-                .ok_or::<Box<dyn Error>>("no line received".into())?;
+                .ok_or(other_error("no line received"))?;
             let mut iter = temp
                 .iter()
                 .enumerate()
@@ -62,10 +64,11 @@ impl PiezoController {
                 return Err("no number found".into());
             }
         })?
-        .parse()?)
+        .parse()
+        .unwrap())
     }
 
-    pub fn update(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn update(&mut self) -> Result<()> {
         use instruments::mdt693_b::Query;
         if self.flag == (true, true, true) {
             return Ok(());
@@ -85,10 +88,10 @@ impl PiezoController {
             Ok(())
         }
     }
-    pub fn new(address: <Serial as Protocol>::Address) -> Result<Self, Box<dyn Error>> {
+    pub fn new(address: <Serial as Protocol>::Address) -> Result<Self> {
         use instruments::mdt693_b::Query;
 
-        let mut messenger = instruments::mdt693_b::MDT693B::default_connect(address)?;
+        let mut messenger = instruments::mdt693_b::MDT693B::default_connect(address).unwrap();
         let x_voltage = Self::extract_num(messenger.query(Query::ReadXVoltage)?)?;
         let y_voltage = Self::extract_num(messenger.query(Query::ReadYVoltage)?)?;
         let z_voltage = Self::extract_num(messenger.query(Query::ReadZVoltage)?)?;
@@ -104,21 +107,21 @@ impl PiezoController {
     pub fn messenger(&mut self) -> &mut Instrument<Messenger<<Serial as Protocol>::IO>, MDT693B> {
         &mut self.messenger
     }
-    pub fn set_x(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
+    pub fn set_x(&mut self, voltage: f32) -> Result<()> {
         use instruments::mdt693_b::Command;
         self.messenger.command(Command::SetXVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
         self.flag.0 = false;
         Ok(())
     }
-    pub fn set_y(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
+    pub fn set_y(&mut self, voltage: f32) -> Result<()> {
         use instruments::mdt693_b::Command;
         self.messenger.command(Command::SetYVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
         self.flag.1 = false;
         Ok(())
     }
-    pub fn set_z(&mut self, voltage: f32) -> Result<(), Box<dyn Error>> {
+    pub fn set_z(&mut self, voltage: f32) -> Result<()> {
         use instruments::mdt693_b::Command;
         self.messenger.command(Command::SetZVoltage(voltage))?;
         self.time_set = std::time::Instant::now();
@@ -135,15 +138,15 @@ impl PiezoController {
         self.z_voltage
     }
     //real time voltage
-    pub fn rt_x(&mut self) -> Result<f32, Box<dyn Error>> {
+    pub fn rt_x(&mut self) -> Result<f32> {
         self.update()?;
         Ok(self.x_voltage)
     }
-    pub fn rt_y(&mut self) -> Result<f32, Box<dyn Error>> {
+    pub fn rt_y(&mut self) -> Result<f32> {
         self.update()?;
         Ok(self.y_voltage)
     }
-    pub fn rt_z(&mut self) -> Result<f32, Box<dyn Error>> {
+    pub fn rt_z(&mut self) -> Result<f32> {
         self.update()?;
         Ok(self.z_voltage)
     }

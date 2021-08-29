@@ -1,30 +1,55 @@
+use std::fmt;
+
 use bytes::{Buf, Bytes};
+
+use crate::protocols::onc_rpc::vxi11::Vxi11;
 pub mod com_cmd;
 pub mod scpi_error;
-type Result<T> = std::result::Result<T, scpi_error::ScpiError>;
+use crate::Result;
 pub trait Scpi {
-    fn scpi_send<C: AsRef<[u8]>>(&mut self, command: C) -> Result<()>;
-    fn scpi_read(&mut self) -> Result<Bytes>;
+    const TERM: u8 = b'\n';
+    fn write_bin<C: AsRef<[u8]>>(&mut self, content: C) -> Result<()>;
+    fn read_bin(&mut self) -> Result<Bytes>;
+    fn scpi_send<S: AsRef<str>>(&mut self, mess: S) -> Result<()> {
+        let message = mess.as_ref().as_bytes();
+        let mut temp;
+        let content = if message.last().is_none() || *message.last().unwrap() != Self::TERM {
+            temp = Vec::with_capacity(message.len() + 1);
+            temp.extend_from_slice(message);
+            temp.push(Self::TERM);
+            temp.as_ref()
+        } else {
+            message
+        };
+        self.write_bin(content)
+    }
+    fn scpi_read(&mut self) -> Result<String> {
+        Ok(String::from_utf8_lossy(self.read_bin()?.as_ref()).to_string())
+    }
+    fn scpi_query<S: AsRef<str>>(&mut self, mess: S) -> Result<String> {
+        self.scpi_send(mess)?;
+        self.scpi_read()
+    }
     fn get_event_byte(&mut self) -> Result<EventStatusByte> {
         self.scpi_send(com_cmd::ESR.to_command().query())?;
-        let mut b = self.scpi_read()?;
+        let mut b = self.read_bin()?;
         let byte = EventStatusByte::new(b.get_u8());
         Ok(byte)
     }
     fn get_status_byte(&mut self) -> Result<StatusByte> {
         self.scpi_send(com_cmd::STB.to_command().query())?;
-        let mut b = self.scpi_read()?;
+        let mut b = self.read_bin()?;
         let byte = StatusByte::new(b.get_u8());
         Ok(byte)
     }
-    fn set_event_mask(&mut self, byte: EventStatusByte) -> Result<()> {
-        self.scpi_send(com_cmd::ESR.to_command().para(byte.to_string()))
+    fn set_event_mask<B: Into<u8>>(&mut self, byte: B) -> Result<()> {
+        self.scpi_send(com_cmd::ESE.to_command().para(byte.into().to_string()))
     }
-    fn set_service_mask(&mut self, byte:StatusByte)->Result<()>{
-        self.scpi_send(com_cmd::SRE.to_command().para(byte.to_string()))
+    fn set_service_mask<B: Into<u8>>(&mut self, byte: B) -> Result<()> {
+        self.scpi_send(com_cmd::SRE.to_command().para(byte.into().to_string()))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Command(String);
 
 impl Command {
@@ -72,7 +97,18 @@ where
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct StatusByte(u8);
+impl fmt::Debug for StatusByte {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:>12}: {:#010b}", "Status Byte", self.0)
+    }
+}
+impl Into<u8> for StatusByte {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
 impl StatusByte {
     pub fn new(b: u8) -> Self {
         Self(b)
@@ -114,8 +150,18 @@ impl StatusByte {
         self.0 & (1 << 6) == 0
     }
 }
-
+#[derive(Clone, Copy)]
 pub struct EventStatusByte(u8);
+impl fmt::Debug for EventStatusByte {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:>12}: {:#010b}", "Event Byte", self.0)
+    }
+}
+impl Into<u8> for EventStatusByte {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
 impl EventStatusByte {
     pub fn new(b: u8) -> Self {
         Self(b)
@@ -160,5 +206,15 @@ impl ToString for StatusByte {
 impl ToString for EventStatusByte {
     fn to_string(&self) -> String {
         self.0.to_string()
+    }
+}
+
+impl Scpi for super::protocols::onc_rpc::vxi11::Vxi11 {
+    fn read_bin(&mut self) -> Result<Bytes> {
+        self.device_read()
+    }
+    fn write_bin<C: AsRef<[u8]>>(&mut self, content: C) -> Result<()> {
+        let _n = self.device_write(content.as_ref())?;
+        Ok(())
     }
 }

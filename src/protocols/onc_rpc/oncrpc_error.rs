@@ -4,8 +4,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum OncRpcError {
-    #[error("IO error: {0}")]
-    IOError(#[from] std::io::Error),
     #[error("invalid onc-rpc message: {0}")]
     InvalidRpcMessage(#[from] onc_rpc::Error),
     #[error("onc-rpc rejected: {0}")]
@@ -21,16 +19,7 @@ pub enum OncRpcError {
     #[error("rpc error: '{0}'")]
     Other(String),
 }
-impl OncRpcError {
-    pub fn is_timeout(&self) -> bool {
-        if let OncRpcError::IOError(e) = self {
-            if e.kind() == std::io::ErrorKind::TimedOut {
-                return true;
-            }
-        }
-        false
-    }
-}
+
 
 impl From<Infallible> for OncRpcError {
     fn from(_: Infallible) -> Self {

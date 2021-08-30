@@ -2,7 +2,7 @@ use error::other_error;
 use instruments::{mdt693_b::MDT693B, Instrument, Messenger, Model};
 use protocols::{Protocol, Serial};
 use serial::SerialPort;
-use std::{error::Error, fmt::Display, time::Duration};
+use std::{fmt::Display, time::Duration};
 pub mod error;
 pub mod instruments;
 pub mod protocols;

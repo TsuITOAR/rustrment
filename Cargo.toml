@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 serial = "*"
 thiserror = "*"
-bytes = "*"
+bytes = "^1.1"
 onc-rpc = "*"
 rand = "*"
 serde = { version = "^1", features = ["derive"] }

@@ -9,7 +9,7 @@ pub mod protocols;
 pub mod scpi;
 #[macro_use]
 extern crate serde;
-type Result<T> = std::result::Result<T, error::Error>;
+pub type Result<T> = std::result::Result<T, error::Error>;
 pub trait DefaultConfig: Model + Sized + Default {
     type DefaultProtocol: Protocol;
     const TIME_OUT: Duration = Duration::from_secs(1);

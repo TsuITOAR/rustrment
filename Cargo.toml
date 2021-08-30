@@ -13,6 +13,7 @@ bytes = "*"
 onc-rpc = "*"
 rand = "*"
 serde = { version = "^1", features = ["derive"] }
+serde_bytes= "*"
 serde-xdr = "*"
 
 [build-dependencies]

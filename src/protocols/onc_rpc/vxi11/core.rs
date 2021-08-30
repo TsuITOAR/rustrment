@@ -1,9 +1,7 @@
 use super::Result;
 use crate::protocols::onc_rpc::{IpProtocol, Rpc, RpcProgram};
 use bytes::{Bytes, BytesMut};
-use serde::Serialize;
 use std::{
-    fmt::Debug,
     net::{IpAddr, TcpStream, ToSocketAddrs},
 };
 
@@ -136,7 +134,7 @@ impl Core<TcpStream> {
             self.call_anonymously(DestroyLink, xdr::Device_Link(xdr::long(link_id)))?;
         Result::from(ErrorCode::from(resp))
     }
-    pub fn device_write<D: AsRef<[u8]> + Debug + Serialize>(
+    pub fn device_write<D: AsRef<[u8]>>(
         &mut self,
         link_id: i32,
         flags: DeviceFlags,
@@ -151,7 +149,7 @@ impl Core<TcpStream> {
                 io_timeout: xdr::ulong(io_timeout),
                 lock_timeout: xdr::ulong(lock_timeout),
                 flags: flags.into(),
-                data: unsafe { std::str::from_utf8_unchecked(data.as_ref()) },
+                data: serde_bytes::Bytes::new(data.as_ref()),
             },
         )?;
         Result::from(ErrorCode::from(resp.error))?;
@@ -341,7 +339,7 @@ impl Core<TcpStream> {
         let resp: xdr::Device_Error = self.call_anonymously(DestroyIntrChan, ())?;
         Result::from(ErrorCode::from(resp))
     }
-    pub fn device_enable_srq<D: AsRef<[u8]> + Debug + Serialize>(
+    pub fn device_enable_srq<D: AsRef<[u8]>>(
         &mut self,
         link_id: i32,
         enable: bool,
@@ -353,12 +351,12 @@ impl Core<TcpStream> {
             xdr::Device_EnableSrqParms {
                 lid: xdr::Device_Link(xdr::long(link_id)),
                 enable,
-                handle: unsafe { std::str::from_utf8_unchecked(handle.as_ref()) }, //Store handle<40> so it can be passed back to the network instrument client in a device_intr_srq RPC when a service request occurs.
+                handle: serde_bytes::Bytes::new(handle.as_ref()), //Store handle<40> so it can be passed back to the network instrument client in a device_intr_srq RPC when a service request occurs.
             },
         )?;
         Result::from(ErrorCode::from(resp))
     }
-    pub fn device_do_cmd<D: AsRef<[u8]> + Debug + Serialize>(
+    pub fn device_do_cmd<D: AsRef<[u8]>>(
         &mut self,
         link_id: i32,
         flags: DeviceFlags,
@@ -382,7 +380,7 @@ impl Core<TcpStream> {
                 indicates the size of individual data elements A value of one(1) in datasize means byte data and no swapping is performed. A value of two(2) in datasize means 16-bit word data and bytes are swapped on word boundaries. A value of four(4) in datasize means 32-bit longword data and bytes are swapped on longword boundaries. A value of eight(8) in datasize means 64-bit data and bytes are swapped on 8-byte boundaries.
                 */
                 datasize: xdr::long(data_size),
-                data_in: unsafe { std::str::from_utf8_unchecked(data_in.as_ref()) },
+                data_in: serde_bytes::Bytes::new(data_in.as_ref()),
             },
         )?;
         Result::from(ErrorCode::from(resp.error))?;

@@ -37,7 +37,7 @@ fn get_local_ip() -> Option<IpAddr> {
 
 const TIME_OUT: std::time::Duration = Duration::from_secs(1);
 fn main() -> Result<(), Box<dyn Error>> {
-    scpi_test("192.168.3.96".parse()?)?;
+    test_vxi11_connect("192.168.3.96".parse()?)?;
     Ok(())
 }
 fn scpi_test(addr: IpAddr) -> Result<(), Box<dyn Error>> {
@@ -77,9 +77,12 @@ fn test_vxi11_connect(addr: IpAddr) -> Result<(), Box<dyn Error>> {
     if let Err(e) = osc.establish_interrupt((get_local_ip().unwrap(), 3480), 3457, 1) {
         println!("establish interrupt channel failed: {}", e);
     };
-    osc.device_write_str("*IDN?")?;
 
+    osc.device_write_str("*IDN?")?;
+    println!("{:#010b}", osc.device_read_stb()?);
     println!("{}", osc.device_read_str()?);
+    println!("{:#010b}", osc.device_read_stb()?);
+    osc.device_enable_srq(true, "srq\n")?;
 
     Ok(())
 }

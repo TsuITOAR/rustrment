@@ -5,7 +5,6 @@ use std::{
 };
 
 use bytes::Bytes;
-use serde::Serialize;
 
 use crate::protocols::onc_rpc::RpcProgram;
 
@@ -309,10 +308,7 @@ impl Vxi11 {
         self.flags = flags;
         self
     }
-    pub fn device_write<M: AsRef<[u8]> + Debug + Serialize>(
-        &mut self,
-        message: M,
-    ) -> Result<usize> {
+    pub fn device_write<M: AsRef<[u8]>>(&mut self, message: M) -> Result<usize> {
         debug_assert!(message.as_ref().len() <= self.max_recv_size as usize);
         self.core.device_write(
             self.link_id,
@@ -353,6 +349,17 @@ impl Vxi11 {
     }
     pub fn device_read_str(&mut self) -> Result<String> {
         Ok(String::from_utf8_lossy(self.device_read()?.as_ref()).to_string())
+    }
+    pub fn device_read_stb(&mut self) -> Result<u8> {
+        Ok(self.core.device_read_status(
+            self.link_id,
+            self.flags,
+            self.lock_timeout,
+            self.io_timeout,
+        )? as u8)
+    }
+    pub fn device_enable_srq<D: AsRef<[u8]>>(&mut self, enable: bool, handle: D) -> Result<()> {
+        self.core.device_enable_srq(self.link_id, enable, handle)
     }
     pub fn device_abort(&mut self) -> Result<()> {
         match self.abort {

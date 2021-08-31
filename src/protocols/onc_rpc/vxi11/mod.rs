@@ -184,7 +184,7 @@ pub struct Vxi11Client {
     pub lock: bool,
     pub lock_timeout: Duration,
     pub io_timeout: Duration,
-    pub req_size: u32,
+    pub req_size: usize,
     pub term: char,
     pub flags: DeviceFlags,
 }
@@ -195,7 +195,7 @@ impl Vxi11Client {
         lock: bool,
         lock_timeout: Duration,
         io_timeout: Duration,
-        req_size: u32,
+        req_size: usize,
         term: char,
         flags: DeviceFlags,
     ) -> Self {
@@ -401,12 +401,17 @@ impl Vxi11Client {
             super::IpProtocol::Tcp,
         )?;
         let vxi11_addr = SocketAddr::new(address, core_port as u16);
-        Vxi11::new(
+        let mut ret = Vxi11::new(
             vxi11_addr,
             self.client_id,
             self.lock,
             self.lock_timeout,
             self.io_timeout,
-        )
+        )?;
+        ret.flags = self.flags;
+        ret.req_size = self.req_size;
+        ret.term = self.term;
+        ret.flags = self.flags;
+        Ok(ret)
     }
 }

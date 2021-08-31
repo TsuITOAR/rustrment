@@ -27,6 +27,10 @@ fn parse_bytes(bytes: Bytes) -> Result<RpcMessage<Bytes, Bytes>> {
         Err(e) => Err(e.into()),
     }
 }
+fn expected_message_len(data: &[u8]) -> (usize, bool) {
+    let header = u32::from_be_bytes(data.try_into().expect("header need at least 4 bytes"));
+    ((header & (!(1 << 31))) as usize, (header & (1 << 31)) != 0)
+}
 pub trait RpcStream {
     fn raw_write(&mut self, buf: &[u8]) -> std::io::Result<usize>;
     fn raw_read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
@@ -42,31 +46,31 @@ pub trait RpcStream {
     }
 
     fn read(&mut self, buf: BytesMut) -> Result<RpcMessage<Bytes, Bytes>> {
+        let mut head_buf = [0_u8; 4];
         let mut buf_cursor = MyCursor::new(buf);
+        let mut total_len = 0;
         buf_cursor.reserve(HEAD_LEN);
-        let bytes = {
-            let expected_len = loop {
-                let num_read = self.raw_read(buf_cursor.as_mut())?;
-                buf_cursor.advance(num_read);
-                match onc_rpc::expected_message_len(buf_cursor.as_ref()) {
-                    Ok(len) => break len as usize,
-                    Err(onc_rpc::Error::IncompleteHeader) => continue,
-                    Err(e) => return Err(e.into()),
-                };
-            };
-            if expected_len > buf_cursor.filled {
-                let current_len = buf_cursor.filled;
-                buf_cursor.reserve(expected_len - current_len);
-
-                // The buffer does not contain a full message, read more data
-                raw_read_exact(self, &mut buf_cursor.as_mut()[..expected_len - current_len])?;
+        buf_cursor.advance(HEAD_LEN);
+        raw_read_exact(self, head_buf.as_mut())?;
+        loop {
+            let (this_len, is_last) = expected_message_len(head_buf.as_ref());
+            buf_cursor.reserve(this_len);
+            raw_read_exact(self, &mut buf_cursor.as_mut()[..this_len as usize])?;
+            buf_cursor.advance(this_len);
+            total_len += this_len;
+            if is_last {
+                break;
+            } else {
+                raw_read_exact(self, head_buf.as_mut())?;
             }
-            let mut buf = buf_cursor.into_inner();
-            // Split the buffer into a single message
-            let msg_bytes = buf.split_to(expected_len as usize);
-            Result::Ok(msg_bytes.freeze())
-        }?;
-        Ok(parse_bytes(bytes)?)
+        }
+        //for now use the non-support-for-fragment onc-rpc crate, which can't handle head of bigger than 2^31-1, about 2GB
+        //TODO: use own convert function to support message with any length
+        debug_assert!(total_len < (1 << 31));
+        let fake_head = (total_len & (1 << 31)) as u32;
+        let mut buf = buf_cursor.into_inner();
+        buf.as_mut()[..HEAD_LEN].copy_from_slice(fake_head.to_be_bytes().as_ref());
+        Ok(parse_bytes(buf.split_to(total_len + HEAD_LEN).freeze())?)
     }
     fn set_read_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()>;
     fn set_write_timeout<T: Into<Option<Duration>>>(&self, dur: T) -> Result<()>;
@@ -224,7 +228,7 @@ where
     S: RpcBroadcast + RpcProgram + ?Sized,
     <S as RpcProgram>::IO: RpcSocket,
     R: TryFrom<Bytes>,
-    crate::error::Error: From<<R as TryFrom<bytes::Bytes>>::Error>
+    crate::error::Error: From<<R as TryFrom<bytes::Bytes>>::Error>,
 {
     {
         let buf = s.buffer();

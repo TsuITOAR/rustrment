@@ -67,7 +67,7 @@ pub trait RpcStream {
         //for now use the non-support-for-fragment onc-rpc crate, which can't handle head of bigger than 2^31-1, about 2GB
         //TODO: use own convert function to support message with any length
         debug_assert!(total_len < (1 << 31));
-        let fake_head = (total_len & (1 << 31)) as u32;
+        let fake_head = (total_len | (1 << 31)) as u32;
         let mut buf = buf_cursor.into_inner();
         buf.as_mut()[..HEAD_LEN].copy_from_slice(fake_head.to_be_bytes().as_ref());
         Ok(parse_bytes(buf.split_to(total_len + HEAD_LEN).freeze())?)

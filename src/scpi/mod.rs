@@ -2,7 +2,6 @@ use std::fmt;
 
 use bytes::{Buf, Bytes};
 
-use crate::protocols::onc_rpc::vxi11::Vxi11;
 pub mod com_cmd;
 pub mod scpi_error;
 use crate::Result;

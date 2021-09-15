@@ -28,8 +28,8 @@ pub enum Trig {
     Mode(TrigMode),
 }
 pub struct TrigLevel {
-    channel: u8,
-    level: f32,
+    //channel: u8,
+    //level: f32,
 }
 pub enum TrigMode {
     ///Edge trigger mode.

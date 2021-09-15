@@ -107,7 +107,7 @@ impl From<crate::protocols::onc_rpc::xdr::Error> for Error {
     }
 }
 impl From<Infallible> for Error {
-    fn from(s: Infallible) -> Self {
+    fn from(_: Infallible) -> Self {
         unreachable!()
     }
 }

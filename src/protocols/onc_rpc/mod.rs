@@ -201,10 +201,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> MyCursor<T> {
         self.inner.as_ref().len()
     }
 }
+const REDUNDANCE: usize = 5;
 impl MyCursor<BytesMut> {
     fn reserve(&mut self, additional: usize) {
         if self.filled + additional > self.capacity() {
-            self.inner.resize(self.filled + additional, 0);
+            self.inner.resize(self.filled + additional * REDUNDANCE, 0);
         }
     }
 }

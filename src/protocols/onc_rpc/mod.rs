@@ -66,7 +66,7 @@ pub trait RpcStream {
         }
         //for now use the non-support-for-fragment onc-rpc crate, which can't handle head of bigger than 2^31-1, about 2GB
         //TODO: use own convert function to support message with any length
-        debug_assert!(total_len < (1 << 31));
+        assert!(total_len < (1 << 31));
         let fake_head = (total_len | (1 << 31)) as u32;
         let mut buf = buf_cursor.into_inner();
         buf.as_mut()[..HEAD_LEN].copy_from_slice(fake_head.to_be_bytes().as_ref());
@@ -124,7 +124,7 @@ pub trait RpcSocket {
             let (num_read, addr) = self.raw_recv_from(buf_cursor.as_mut())?;
             let mut buf = buf_cursor.into_inner();
             let head: [u8; HEAD_LEN] = (num_read as u32).to_be_bytes();
-            debug_assert!((num_read as u32) < (u32::MAX >> 1));
+            assert!((num_read as u32) < (u32::MAX >> 1));
             for i in 0..HEAD_LEN {
                 buf[i] = head[i];
             }
@@ -212,14 +212,14 @@ impl MyCursor<BytesMut> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> AsRef<[u8]> for MyCursor<T> {
     fn as_ref(&self) -> &[u8] {
-        debug_assert!(self.inner.as_ref().len() >= self.filled);
+        assert!(self.inner.as_ref().len() >= self.filled);
         &self.inner.as_ref()[..self.filled]
     }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for MyCursor<T> {
     fn as_mut(&mut self) -> &mut [u8] {
-        debug_assert!(self.inner.as_ref().len() >= self.filled);
+        assert!(self.inner.as_ref().len() >= self.filled);
         &mut self.inner.as_mut()[self.filled..]
     }
 }
@@ -536,7 +536,7 @@ fn recv_without_head<S: RpcStream>(
         let num_read = s.raw_read(buf_cursor.as_mut())?;
         let mut buf = buf_cursor.into_inner();
         let head: [u8; HEAD_LEN] = (num_read as u32).to_be_bytes();
-        debug_assert!((num_read as u32) < (u32::MAX >> 1));
+        assert!((num_read as u32) < (u32::MAX >> 1));
         for i in 0..HEAD_LEN {
             buf[i] = head[i];
         }

@@ -106,32 +106,34 @@ impl super::Command for Command {
     type R = Box<[u8]>;
     fn to_bytes(self) -> Self::R {
         match self {
-            Command::SetEchoCommand(bo) => format!("echo={}", bo),
-            Command::SetDisplayIntensity(n) => format!("intensity={}", n), //0-15
-            Command::SetAllVoltages(n) => format!("allvoltage={}", n),
-            Command::SetMasterScanEnable(bo) => format!("msenable={}", bo as u8),
-            Command::SetMasterScanVoltage(n) => format!("msvoltage={}", n),
-            Command::SetXVoltage(n) => format!("xvoltage={}", n),
-            Command::SetYVoltage(n) => format!("yvoltage={}", n),
-            Command::SetZVoltage(n) => format!("zvoltage={}", n),
-            Command::SetMinXVoltage(n) => format!("xmin={}", n),
-            Command::SetMinYVoltage(n) => format!("ymin={}", n),
-            Command::SetMinZVoltage(n) => format!("zmin={}", n),
-            Command::SetMaxXVoltage(n) => format!("xmax={}", n),
-            Command::SetMaxYVoltage(n) => format!("ymax={}", n),
-            Command::SetMaxZVoltage(n) => format!("zmax={}", n),
-            Command::SetVoltageAdjustmentResolution(n) => format!("dacstep={}", n), //1-1000
-            Command::IncrementVoltage => String::from_utf8(vec![0x1b, b'[', b'A']).unwrap(),
-            Command::DecrementVoltage => String::from_utf8(vec![0x1b, b'[', b'B']).unwrap(),
-            Command::DecreaseChannel => String::from_utf8(vec![0x1b, b'[', b'D']).unwrap(),
-            Command::IncreaseChannel => String::from_utf8(vec![0x1b, b'[', b'C']).unwrap(),
-            Command::SetFriendlyName(s) => format!("friendly={}", s),
-            Command::SetCompatibilityMode(bo) => format!("cm={}", bo as u8),
+            Command::SetEchoCommand(bo) => format!("echo={}", bo).into_bytes(),
+            Command::SetDisplayIntensity(n) => format!("intensity={}", n).into_bytes(), //0-15
+            Command::SetAllVoltages(n) => format!("allvoltage={}", n).into_bytes(),
+            Command::SetMasterScanEnable(bo) => format!("msenable={}", bo as u8)
+                .bytes()
+                .collect::<Vec<u8>>(),
+            Command::SetMasterScanVoltage(n) => format!("msvoltage={}", n).into_bytes(),
+            Command::SetXVoltage(n) => format!("xvoltage={}", n).into_bytes(),
+            Command::SetYVoltage(n) => format!("yvoltage={}", n).into_bytes(),
+            Command::SetZVoltage(n) => format!("zvoltage={}", n).into_bytes(),
+            Command::SetMinXVoltage(n) => format!("xmin={}", n).into_bytes(),
+            Command::SetMinYVoltage(n) => format!("ymin={}", n).into_bytes(),
+            Command::SetMinZVoltage(n) => format!("zmin={}", n).into_bytes(),
+            Command::SetMaxXVoltage(n) => format!("xmax={}", n).into_bytes(),
+            Command::SetMaxYVoltage(n) => format!("ymax={}", n).into_bytes(),
+            Command::SetMaxZVoltage(n) => format!("zmax={}", n).into_bytes(),
+            Command::SetVoltageAdjustmentResolution(n) => format!("dacstep={}", n).into_bytes(), //1-1000
+            Command::IncrementVoltage => vec![0x1b, b'[', b'A'],
+            Command::DecrementVoltage => vec![0x1b, b'[', b'B'],
+            Command::DecreaseChannel => vec![0x1b, b'[', b'D'],
+            Command::IncreaseChannel => vec![0x1b, b'[', b'C'],
+            Command::SetFriendlyName(s) => format!("friendly={}", s).into_bytes(),
+            Command::SetCompatibilityMode(bo) => format!("cm={}", bo as u8).into_bytes(),
             //Command::SetRotaryMode()=>"",//0 1 -1
-            Command::SetDisableRotaryPushToAdjust(bo) => format!("disablepush={}", bo as u8),
+            Command::SetDisableRotaryPushToAdjust(bo) => {
+                format!("disablepush={}", bo as u8).into_bytes()
+            }
         }
-        .bytes()
-        .collect::<Vec<u8>>()
         .into_boxed_slice()
     }
 }

@@ -1,5 +1,5 @@
-use crate::DefaultConfig;
 use super::Model;
+use crate::DefaultConfig;
 
 #[derive(Default)]
 pub struct MDT693B;
@@ -121,10 +121,10 @@ impl super::Command for Command {
             Command::SetMaxYVoltage(n) => format!("ymax={}", n),
             Command::SetMaxZVoltage(n) => format!("zmax={}", n),
             Command::SetVoltageAdjustmentResolution(n) => format!("dacstep={}", n), //1-1000
-            Command::IncrementVoltage => "Up arrow".to_string(),
-            Command::DecrementVoltage => "Down arrow".to_string(),
-            Command::DecreaseChannel => "Left arrow".to_string(),
-            Command::IncreaseChannel => "Right arrow".to_string(),
+            Command::IncrementVoltage => String::from_utf8(vec![0x1b, b'[', b'A']).unwrap(),
+            Command::DecrementVoltage => String::from_utf8(vec![0x1b, b'[', b'B']).unwrap(),
+            Command::DecreaseChannel => String::from_utf8(vec![0x1b, b'[', b'D']).unwrap(),
+            Command::IncreaseChannel => String::from_utf8(vec![0x1b, b'[', b'C']).unwrap(),
             Command::SetFriendlyName(s) => format!("friendly={}", s),
             Command::SetCompatibilityMode(bo) => format!("cm={}", bo as u8),
             //Command::SetRotaryMode()=>"",//0 1 -1
